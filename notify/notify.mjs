@@ -3,6 +3,7 @@ import { firebaseConfig as cfg, APP_URL } from '../firebase-config.js';
 import { buildReminder, formatReminder, shouldSend, splitText, recordId, collectionFor, taipeiToday, addDays } from '../logic.js';
 
 const { BOT_EMAIL, BOT_PASSWORD, LINE_TOKEN, MODE = 'daily', SLOT = 'late' } = process.env;
+if (cfg.apiKey.startsWith('PASTE')) { console.log('系統還沒完成設定，略過'); process.exit(0); }
 if (!BOT_EMAIL || !BOT_PASSWORD || !LINE_TOKEN) throw new Error('缺少 GitHub Secrets 設定');
 const base = `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/(default)/documents`;
 
