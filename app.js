@@ -22,7 +22,7 @@ function ruleText(t) {
 }
 
 // 身分由登入帳號決定，不用自己選。這裡存的是信箱的雜湊值，專案公開也不會直接露出信箱。
-const PEOPLE = { 'b97e50eefac19a3b8b06647c29f7da8f4f3a249b10988b40e1cbe04610e327a9': '主任', '655df5cc1ff2921edad3246c3e5a1876c13d8235469f40a689ccb067a05cbcbe': '行政', '83e86d990327eeb937a1f55b6161cfd52371e98499c73aaa977bfeeb1835ece8': '協助者' };
+const PEOPLE = { 'b97e50eefac19a3b8b06647c29f7da8f4f3a249b10988b40e1cbe04610e327a9': '行政', '655df5cc1ff2921edad3246c3e5a1876c13d8235469f40a689ccb067a05cbcbe': '主任', '83e86d990327eeb937a1f55b6161cfd52371e98499c73aaa977bfeeb1835ece8': '協助者' };
 async function nameOf(email) {
   const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(email.trim().toLowerCase()));
   return PEOPLE[[...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('')] || email;
