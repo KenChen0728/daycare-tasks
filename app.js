@@ -235,6 +235,25 @@ $('mgrid').innerHTML = MZ.slice(1).map((z, i) => `<label><input type="checkbox" 
 addEventListener('hashchange', () => { const v = location.hash.slice(1) || 'today'; if (v !== view) setView(v); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && user && !$('app').hidden) render(); });
 
+// 新版本提示：比對網站上的檔案，有變動就顯示提示。只由使用者自己按，編輯中不打擾。
+const SITE_FILES = ['index.html', 'app.js', 'logic.js', 'style.css'];
+let siteBase = null, siteNew = false, siteChecked = 0;
+const readSite = async () => (await Promise.all(SITE_FILES.map(async f => { const r = await fetch(f, { cache: 'no-store' }); if (!r.ok) throw 0; return r.text(); }))).join('\n');
+const showUpdate = () => { $('updateBar').hidden = !siteNew || !!document.querySelector('dialog[open]'); };
+async function checkSite(force) {
+  if (siteNew || (!force && Date.now() - siteChecked < 60000)) return;
+  siteChecked = Date.now();
+  try { const t = await readSite(); if (siteBase === null) siteBase = t; else if (t !== siteBase) { siteNew = true; showUpdate(); } } catch (_) {}
+}
+$('updateBar').onclick = async () => {
+  try { await Promise.all(SITE_FILES.map(f => fetch(f, { cache: 'reload' }))); } catch (_) {}
+  location.reload();
+};
+document.querySelectorAll('dialog').forEach(d => d.addEventListener('close', showUpdate));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkSite(); });
+setInterval(() => { if (!document.hidden) checkSite(true); }, 600000);
+checkSite(true);
+
 if (firebaseConfig.apiKey.startsWith('PASTE')) {
   document.body.innerHTML = '<div class="wrap"><h1>托嬰中心待辦</h1><div class="empty">系統還沒完成設定。</div></div>';
 } else {
