@@ -198,7 +198,7 @@ function subscribe() {
     fb.onSnapshot(fb.doc(db, 'meta', 'reminder'), s => { meta = s.exists() ? s.data() : null; render(); }, () => {})
   ];
 }
-function screen(id) { ['login', 'app'].forEach(x => $(x).hidden = x !== id); }
+function screen(id) { ['boot', 'login', 'app'].forEach(x => $(x).hidden = x !== id); }
 function enter() {
   screen('app');
   if (!localStorageHasWho() && (myName === '主任' || myName === '行政')) who = myName === '主任' ? 'director' : 'admin';
@@ -239,13 +239,14 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && us
 const SITE_FILES = ['index.html', 'app.js', 'logic.js', 'style.css'];
 let siteBase = null, siteNew = false, siteChecked = 0;
 const readSite = async () => (await Promise.all(SITE_FILES.map(async f => { const r = await fetch(f, { cache: 'no-store' }); if (!r.ok) throw 0; return r.text(); }))).join('\n');
-const showUpdate = () => { $('updateBar').hidden = !siteNew || !!document.querySelector('dialog[open]'); };
+const showUpdate = () => { if (!$('updateBar')) return; $('updateBar').hidden = !siteNew || !!document.querySelector('dialog[open]'); };
 async function checkSite(force) {
   if (siteNew || (!force && Date.now() - siteChecked < 60000)) return;
   siteChecked = Date.now();
   try { const t = await readSite(); if (siteBase === null) siteBase = t; else if (t !== siteBase) { siteNew = true; showUpdate(); } } catch (_) {}
 }
-$('updateBar').onclick = async () => {
+const updateBar = $('updateBar');
+if (updateBar) updateBar.onclick = async () => {
   try { await Promise.all(SITE_FILES.map(f => fetch(f, { cache: 'reload' }))); } catch (_) {}
   location.reload();
 };
@@ -269,9 +270,10 @@ if (firebaseConfig.apiKey.startsWith('PASTE')) {
     try { await fb.sendPasswordResetEmail(auth, m); } catch (_) {}
     $('lMsg').textContent = '如果這個信箱有帳號，重設密碼信已寄出，也請看垃圾信件匣。';
   };
-  $('first').onclick = () => { $('firstEmail').value = $('lEmail').value.trim(); $('firstDlg').showModal(); };
-  $('firstCancel').onclick = () => $('firstDlg').close();
-  $('firstForm').addEventListener('submit', async e => {
+  // 瀏覽器可能暫存到新舊混合的檔案，找不到元件時不可讓整個頁面停住。
+  if ($('first') && $('firstDlg')) $('first').onclick = () => { $('firstEmail').value = $('lEmail').value.trim(); $('firstDlg').showModal(); };
+  if ($('firstDlg')) $('firstCancel').onclick = () => $('firstDlg').close();
+  if ($('firstDlg')) $('firstForm').addEventListener('submit', async e => {
     e.preventDefault();
     const m = $('firstEmail').value.trim();
     try { await fb.sendPasswordResetEmail(auth, m); } catch (_) {}
