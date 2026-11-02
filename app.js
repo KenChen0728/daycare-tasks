@@ -198,7 +198,7 @@ function subscribe() {
     fb.onSnapshot(fb.doc(db, 'meta', 'reminder'), s => { meta = s.exists() ? s.data() : null; render(); }, () => {})
   ];
 }
-function screen(id) { ['boot', 'login', 'app'].forEach(x => $(x).hidden = x !== id); }
+function screen(id) { ['boot', 'login', 'app'].forEach(x => { if ($(x)) $(x).hidden = x !== id; }); }
 function enter() {
   screen('app');
   if (!localStorageHasWho() && (myName === '主任' || myName === '行政')) who = myName === '主任' ? 'director' : 'admin';
