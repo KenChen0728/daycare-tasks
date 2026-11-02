@@ -126,7 +126,7 @@ function renderCal() {
   const rows = list.map(({ t, o, state }) => `<div class="row${state === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(t.title)}</div><div class="meta">${pills(t)}${state === 'over' ? `<span class="when-bad">已逾期 ${diff(now, o.due)} 天</span>` : ''}${o.stage === 'send' && !o.closed ? '<span class="when-warn">待送出</span>' : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`);
   const head = `<div class="calhead"><button class="btn" data-act="calPrev" aria-label="上個月">‹</button><h2>民國 ${y - 1911} 年 ${m} 月</h2><button class="btn" data-act="calNext" aria-label="下個月">›</button><button class="btn" data-act="calToday">回到今天</button></div>`;
   const grid = `<div class="calendar"><div class="cweek" aria-hidden="true">${[...WZ].map(z => `<span>${z}</span>`).join('')}</div><div class="cgrid">${cells}</div></div>`;
-  const legend = '<div class="meta"><b class="cnum c-over">1</b>逾期<b class="cnum c-open">1</b>未完成<b class="cnum c-done">1</b>已結案</div>';
+  const legend = '<div class="meta legend"><span>顏色：</span><span><i class="dot c-over"></i>逾期</span><span><i class="dot c-open"></i>未完成</span><span><i class="dot c-done"></i>已結案</span></div>';
   const day = !sel ? '<div class="empty">點日期可以看當天的事項。</div>' : rows.length ? section(rocDate(sel), '', rows) : `<div class="empty">${rocDate(sel)}沒有到期的事項。</div>`;
   return head + grid + legend + day;
 }
