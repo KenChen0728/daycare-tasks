@@ -245,13 +245,20 @@ if (firebaseConfig.apiKey.startsWith('PASTE')) {
     try { await fb.signInWithEmailAndPassword(auth, $('lEmail').value.trim(), $('lPw').value); $('lMsg').textContent = ''; }
     catch (_) { $('lMsg').textContent = '電子郵件或密碼不正確。'; }
   });
-  const mailReset = done => async () => {
-    const m = $('lEmail').value.trim(); if (!m) { $('lMsg').textContent = '請先在上面填你的電子郵件，再按一次。'; return; }
+  $('forgot').onclick = async () => {
+    const m = $('lEmail').value.trim(); if (!m) { $('lMsg').textContent = '請先填電子郵件，再按一次。'; return; }
     try { await fb.sendPasswordResetEmail(auth, m); } catch (_) {}
-    $('lMsg').textContent = done;
+    $('lMsg').textContent = '如果這個信箱有帳號，重設密碼信已寄出，也請看垃圾信件匣。';
   };
-  $('forgot').onclick = mailReset('如果這個信箱有帳號，重設密碼信已寄出，也請看垃圾信件匣。');
-  $('first').onclick = mailReset('如果這個信箱有帳號，設定密碼的信已寄出。請到信箱點連結設定密碼，再回來登入；也請看垃圾信件匣。');
+  $('first').onclick = () => { $('firstEmail').value = $('lEmail').value.trim(); $('firstDlg').showModal(); };
+  $('firstCancel').onclick = () => $('firstDlg').close();
+  $('firstForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const m = $('firstEmail').value.trim();
+    try { await fb.sendPasswordResetEmail(auth, m); } catch (_) {}
+    $('firstDlg').close(); $('lEmail').value = m;
+    $('lMsg').textContent = '如果這個信箱有帳號，設定密碼的信已寄出。請到信箱點連結設定密碼，再回來登入；也請看垃圾信件匣。';
+  });
   fb.onAuthStateChanged(auth, async u => {
     unsub.forEach(f => f()); unsub = []; recs = new Map(); tasks = []; ready = { tasks: false, records: false, quick: false };
     user = u;
