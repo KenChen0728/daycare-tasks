@@ -31,6 +31,7 @@ async function nameOf(email) {
 let myName = '';
 let db, auth, user, tasks = [], recs = new Map(), meta = null, ready = { tasks: false, records: false, quick: false };
 const VIEWS = ['today', 'all', 'cal', 'log', 'set', 'help'];
+const CAL_BARS = 3;   // 日曆每格最多顯示幾件，其餘寫「還有 N 件」
 let helpTopic = '', helpStep = 0, calMonth = '', calSel = '';
 let view = 'today', who = 'all', editing = null, delArmed = false, unsub = [], importData = null;
 try { who = localStorage.getItem('who') || 'all'; } catch (e) {}
@@ -117,18 +118,19 @@ function renderCal() {
   let cells = '<span class="cblank"></span>'.repeat(blank);
   for (let d = 1; d <= days; d++) {
     const ds = `${calMonth}-${String(d).padStart(2, '0')}`, l = by[ds] || [], w = dow(ds);
-    const n = l.filter(x => x.state !== 'done').length, over = l.some(x => x.state === 'over');
-    const cnt = l.length ? `<b class="cnum ${over ? 'c-over' : n ? 'c-open' : 'c-done'}">${n || l.length}</b>` : '';
+    const rank = { over: 0, open: 1, done: 2 }, over = l.some(x => x.state === 'over');
+    l.sort((a, b) => rank[a.state] - rank[b.state] || (+!!b.t.gov - +!!a.t.gov) || (a.t.order || 0) - (b.t.order || 0));
+    const bars = l.slice(0, CAL_BARS).map(x => `<span class="ev ${x.state === 'open' ? 'e-' + x.t.who : 'e-' + x.state}">${esc(x.t.title)}</span>`).join('') + (l.length > CAL_BARS ? `<span class="evmore">還有 ${l.length - CAL_BARS} 件</span>` : '');
     const label = `${m} 月 ${d} 日，${l.length ? `${l.length} 件${over ? '，有逾期' : ''}` : '沒有事項'}`;
-    cells += `<button class="cday${ds === now ? ' today' : ''}${w === 0 || w === 6 ? ' off' : ''}" data-act="calDay" data-id="${ds}" aria-label="${label}" aria-pressed="${ds === calSel}"><span>${d}</span>${cnt}</button>`;
+    cells += `<button class="cday${ds === now ? ' today' : ''}${w === 0 ? ' sun' : w === 6 ? ' sat' : ''}" data-act="calDay" data-id="${ds}" aria-label="${label}" aria-pressed="${ds === calSel}"><span class="dnum">${d}</span>${bars}</button>`;
   }
   const sel = calSel.slice(0, 7) === calMonth ? calSel : '', list = (by[sel] || []).sort((a, b) => (+!!b.t.gov - +!!a.t.gov) || (a.t.order || 0) - (b.t.order || 0));
   const rows = list.map(({ t, o, state }) => `<div class="row${state === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(t.title)}</div><div class="meta">${pills(t)}${state === 'over' ? `<span class="when-bad">已逾期 ${diff(now, o.due)} 天</span>` : ''}${o.stage === 'send' && !o.closed ? '<span class="when-warn">待送出</span>' : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`);
   const head = `<div class="calhead"><button class="btn" data-act="calPrev" aria-label="上個月">‹</button><h2>民國 ${y - 1911} 年 ${m} 月</h2><button class="btn" data-act="calNext" aria-label="下個月">›</button><button class="btn" data-act="calToday">回到今天</button></div>`;
   const grid = `<div class="calendar"><div class="cweek" aria-hidden="true">${[...WZ].map(z => `<span>${z}</span>`).join('')}</div><div class="cgrid">${cells}</div></div>`;
-  const legend = '<div class="meta legend"><span>顏色：</span><span><i class="dot c-over"></i>逾期</span><span><i class="dot c-open"></i>未完成</span><span><i class="dot c-done"></i>已結案</span></div>';
+  const legend = '<div class="meta legend"><span><i class="dot e-director"></i>主任</span><span><i class="dot e-admin"></i>行政</span><span><i class="dot e-over"></i>逾期</span><span><i class="dot e-done"></i>已結案</span></div>';
   const day = !sel ? '<div class="empty">點日期可以看當天的事項。</div>' : rows.length ? section(rocDate(sel), '', rows) : `<div class="empty">${rocDate(sel)}沒有到期的事項。</div>`;
-  return head + grid + legend + day;
+  return head + grid + legend + `<div id="calDay">${day}</div>`;
 }
 function renderSet() {
   const m = meta ? `${esc(meta.date)}：${esc(meta.sent)}` : '還沒有紀錄';
@@ -268,7 +270,7 @@ document.addEventListener('click', e => {
     render(); return scrollTo(0, 0);
   }
   if (a.startsWith('cal')) {
-    if (a === 'calDay') calSel = b.dataset.id;
+    if (a === 'calDay') { calSel = b.dataset.id; render(); return $('calDay').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     if (a === 'calToday') { calSel = today(); calMonth = calSel.slice(0, 7); }
     if (a === 'calPrev' || a === 'calNext') { const [y, m] = calMonth.split('-').map(Number), n = new Date(Date.UTC(y, m - 1 + (a === 'calNext' ? 1 : -1), 1)).toISOString().slice(0, 7); calMonth = n; }
     return render();

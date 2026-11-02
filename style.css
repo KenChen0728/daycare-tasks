@@ -42,10 +42,15 @@ body:has(#login:not([hidden])) #boot,body:has(#app:not([hidden])) #boot{display:
 
 .btn.logout{background:var(--logout);border-color:var(--logout);color:#FFF;font-weight:700}
 .calhead{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.calhead h2{margin:0;flex:1;justify-content:center;min-width:130px;order:0}.calhead .btn{min-width:44px;font-weight:700}
-.calendar{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px}
-.cweek,.cgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}.cweek{text-align:center;font-size:13px;color:var(--muted);padding-bottom:4px}
-.cday{background:none;border:2px solid transparent;border-radius:8px;min-height:56px;padding:4px 0;display:flex;flex-direction:column;align-items:center;gap:2px}.cday.off>span{color:var(--muted)}.cday.today>span{color:var(--accent);font-weight:700;text-decoration:underline}.cday[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft)}
-.cnum{display:inline-grid;place-items:center;min-width:22px;height:20px;padding:0 4px;border-radius:999px;font-size:12px;line-height:1;font-weight:700}.c-over{background:var(--bad);color:var(--surface)}.c-open{background:var(--accent);color:var(--accent-ink)}.c-done{background:var(--line);color:var(--muted)}
+.calendar{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.cweek,.cgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}.cweek{text-align:center;font-size:13px;color:var(--muted);padding:6px 0}
+.cblank,.cday{border-top:1px solid var(--line);min-height:112px}
+.cday{background:none;border-width:1px 0 0;border-style:solid;border-color:var(--line);border-radius:0;padding:3px 1px;display:flex;flex-direction:column;align-items:stretch;gap:2px;min-width:0;overflow:hidden}
+.cday[aria-pressed=true]{background:var(--accent-soft)}
+.dnum{align-self:center;min-width:24px;height:24px;line-height:24px;border-radius:50%;font-size:14px;text-align:center}.cday.sun .dnum{color:var(--bad)}.cday.sat .dnum{color:var(--gov)}.cday.today .dnum{background:var(--accent);color:var(--accent-ink);font-weight:700}
+.ev{display:block;border-radius:3px;padding:0 2px;font-size:11px;font-weight:700;line-height:17px;white-space:nowrap;overflow:hidden;text-align:left}
+.e-director{background:var(--dir);color:var(--surface)}.e-admin{background:var(--adm);color:var(--surface)}.e-over{background:var(--bad);color:var(--surface)}.e-done{background:var(--line);color:var(--muted)}
+.evmore{font-size:11px;line-height:15px;color:var(--muted);text-align:center;white-space:nowrap}
 .helpitem{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;border-top:1px solid var(--line);padding:12px;min-height:60px;text-align:left}.helpitem:first-child{border-top:0}.helpitem .title,.helpitem .meta{display:block}.go{font-size:24px;line-height:1;color:var(--muted)}
 .back{align-self:flex-start;background:none;border:0;padding:8px 0;min-height:44px;color:var(--accent);font-weight:700}
 section>.bar{width:100%;height:8px}
