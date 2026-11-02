@@ -329,6 +329,7 @@ if (firebaseConfig.apiKey.startsWith('PASTE')) {
   startBoot();
   const app = fb.initializeApp(firebaseConfig);
   auth = fb.getAuth(app); db = fb.getFirestore(app);
+  auth.languageCode = 'zh-TW';   // 重設密碼信與頁面用繁體中文
   $('loginForm').addEventListener('submit', async e => {
     e.preventDefault(); $('lMsg').textContent = '登入中…';
     try { await fb.signInWithEmailAndPassword(auth, $('lEmail').value.trim(), $('lPw').value); $('lMsg').textContent = ''; }
@@ -339,16 +340,6 @@ if (firebaseConfig.apiKey.startsWith('PASTE')) {
     try { await fb.sendPasswordResetEmail(auth, m); } catch (_) {}
     $('lMsg').textContent = '如果這個信箱有帳號，重設密碼信已寄出，也請看垃圾信件匣。';
   };
-  // 瀏覽器可能暫存到新舊混合的檔案，找不到元件時不可讓整個頁面停住。
-  if ($('first') && $('firstDlg')) $('first').onclick = () => { $('firstEmail').value = $('lEmail').value.trim(); $('firstDlg').showModal(); };
-  if ($('firstDlg')) $('firstCancel').onclick = () => $('firstDlg').close();
-  if ($('firstDlg')) $('firstForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const m = $('firstEmail').value.trim();
-    try { await fb.sendPasswordResetEmail(auth, m); } catch (_) {}
-    $('firstDlg').close(); $('lEmail').value = m;
-    $('lMsg').textContent = '如果這個信箱有帳號，設定密碼的信已寄出。請到信箱點連結設定密碼，再回來登入；也請看垃圾信件匣。';
-  });
   fb.onAuthStateChanged(auth, async u => {
     unsub.forEach(f => f()); unsub = []; recs = new Map(); tasks = []; ready = { tasks: false, records: false, quick: false };
     user = u;

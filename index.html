@@ -21,7 +21,6 @@
     <label>電子郵件<input type="email" id="lEmail" autocomplete="username" required></label>
     <label>密碼<input type="password" id="lPw" autocomplete="current-password" required></label>
     <div class="actions"><button type="button" class="btn" id="forgot">忘記密碼</button><button class="btn primary">登入</button></div>
-    <button type="button" class="btn first" id="first">第一次登入請按這裡</button>
     <div id="lMsg" role="status"></div>
   </form>
 </div>
@@ -75,12 +74,6 @@
   <h2>更新到新版本</h2>
   <p class="hint">打勾和已儲存的事項都已存好，更新不會影響資料，也不用重新登入。</p>
   <div class="actions"><button type="button" class="btn" id="updLater">稍後再說</button><button class="btn primary">立即更新</button></div>
-</form></dialog>
-<dialog id="firstDlg"><form id="firstForm" method="dialog">
-  <h2>第一次登入</h2>
-  <p class="hint">輸入你的電子郵件，系統會寄一封設定密碼的信給你。</p>
-  <label>電子郵件<input type="email" id="firstEmail" autocomplete="username" required></label>
-  <div class="actions"><button type="button" class="btn" id="firstCancel">取消</button><button class="btn primary">送出</button></div>
 </form></dialog>
 <script type="module" src="app.js"></script>
 </body></html>
