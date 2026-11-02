@@ -54,6 +54,30 @@ export function nextOcc(t, today, get) {
   return null;
 }
 
+/* 日曆用：某年某月內的每一期到期日。每個上班日與不定期事項不列入。 */
+export function monthOccs(t, y, m, get) {
+  const ym = y + '-' + pad(m), out = [];
+  const push = (key, due) => { if (due.slice(0, 7) === ym) { const r = get(t.id, key); out.push({ key, due, stage: stageOf(t, r), closed: isClosed(t, r) }); } };
+  if (t.freq === 'once') push('once', t.date || '');
+  if (t.freq === 'weekly') {
+    const wd = t.weekday || 5;
+    for (let d = 1; d <= lastDay(y, m); d++) {
+      const due = ym + '-' + pad(d);
+      if (dow(due) === wd && (!t.from || due >= t.from)) push(addDays(due, 1 - wd), due);
+    }
+  }
+  if (t.freq === 'monthly' || t.freq === 'months') {
+    // 上個月底順延過來的那一期也算在這個月。
+    for (const [yy, mm] of [m === 1 ? [y - 1, 12] : [y, m - 1], [y, m]]) {
+      if (!(t.months || []).includes(mm)) continue;
+      const raw = yy + '-' + pad(mm) + '-' + pad(Math.min(t.day || 31, lastDay(yy, mm)));
+      const due = t.rollover ? rollDue(raw) : raw;
+      if (!t.from || due >= t.from) push(yy + '-' + pad(mm), due);
+    }
+  }
+  return out;
+}
+
 export function bucket(t, o, today) {
   const d = diff(o.due, today);
   if (d < 0) return 'over';

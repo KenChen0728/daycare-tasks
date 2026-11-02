@@ -1,5 +1,5 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays } from '../logic.js';
+import { nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays, monthOccs } from '../logic.js';
 const none = () => undefined;
 const M = { id:'m', who:'admin', freq:'monthly', months:[1,2,3,4,5,6,7,8,9,10,11,12], day:31, lead:7, from:'2026-11-01', title:'月', gov:false };
 const S = { ...M, id:'s', needSend:true, gov:true };
@@ -28,4 +28,16 @@ test('遇假日順延', () => {
   assert.equal(nextOcc(R,'2027-04-20',g).due,'2027-05-03');
   assert.equal(nextOcc({...R,from:'2027-01-01'},'2027-01-01',none).due,'2027-01-04');
   assert.equal(nextOcc({...R,rollover:false,from:'2026-12-01'},'2026-12-01',none).due,'2026-12-01');
+});
+test('日曆：每期到期日與結案狀態', () => {
+  assert.deepEqual(monthOccs(W,2026,11,none).map(o=>o.due),['2026-11-03','2026-11-10','2026-11-17','2026-11-24']);
+  assert.equal(monthOccs(W,2026,11,none)[1].key,nextOcc(W,'2026-11-10',(i,k)=>k==='2026-11-02'?{doneAt:1,sentAt:1}:undefined).key);
+  assert.deepEqual(monthOccs(M,2026,10,none),[]);
+  const roll={...M,day:1,rollover:true,from:'2026-10-01'};
+  assert.deepEqual(monthOccs(roll,2026,11,none).map(o=>o.due),['2026-11-02']);
+  assert.equal(monthOccs(S,2026,11,()=>({doneAt:1})) [0].stage,'send');
+  assert.equal(monthOccs(S,2026,11,()=>({doneAt:1,sentAt:1}))[0].closed,true);
+  assert.deepEqual(monthOccs({...M,freq:'daily'},2026,11,none),[]);
+  // 週六的月底順延到下個月
+  assert.deepEqual(monthOccs({...M,day:31,rollover:true,from:'2026-01-01'},2026,11,none).map(o=>o.due),['2026-11-02','2026-11-30']);
 });

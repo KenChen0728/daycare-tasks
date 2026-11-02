@@ -1,6 +1,7 @@
 import { firebaseConfig, APP_URL } from './firebase-config.js';
 import * as fb from './vendor/firebase.js';
-import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf } from './logic.js';
+import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf, monthOccs } from './logic.js';
+import { renderHelp } from './help.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -29,6 +30,8 @@ async function nameOf(email) {
 }
 let myName = '';
 let db, auth, user, tasks = [], recs = new Map(), meta = null, ready = { tasks: false, records: false, quick: false };
+const VIEWS = ['today', 'all', 'cal', 'log', 'set', 'help'];
+let helpTopic = '', helpStep = 0, calMonth = '', calSel = '';
 let view = 'today', who = 'all', editing = null, delArmed = false, unsub = [], importData = null;
 try { who = localStorage.getItem('who') || 'all'; } catch (e) {}
 
@@ -95,9 +98,41 @@ function renderLog() {
     return `<div class="row">${ticks(t, d.key)}<div class="main"><div class="title">${esc(d.title)}</div><div class="meta"><span class="pill p-${esc(d.who)}">${WHO[d.who] || ''}</span>${d.doneAt ? `<span>${esc(d.doneBy)} 完成</span>` : ''}${d.sentAt ? `<span>${esc(d.sentBy)} ${short(d.sentDate)} 送出</span>` : ''}</div></div></div>`;
   }))).join('');
 }
+function calItems(ym, now) {
+  const [y, m] = ym.split('-').map(Number), by = {};
+  for (const t of tasks.filter(show)) {
+    const cur = nextOcc(t, now, getRec);
+    for (const o of monthOccs(t, y, m, getRec)) {
+      // 逾期判斷與「今天」頁相同，只看目前最早一期還沒結案的事項。
+      const state = o.closed ? 'done' : (cur && cur.key === o.key && o.due < now) ? 'over' : 'open';
+      (by[o.due] ||= []).push({ t, o, state });
+    }
+  }
+  return by;
+}
+function renderCal() {
+  const now = today(); calMonth ||= now.slice(0, 7); calSel ||= now;
+  const [y, m] = calMonth.split('-').map(Number), by = calItems(calMonth, now);
+  const days = new Date(Date.UTC(y, m, 0)).getUTCDate(), blank = dow(calMonth + '-01');
+  let cells = '<span class="cblank"></span>'.repeat(blank);
+  for (let d = 1; d <= days; d++) {
+    const ds = `${calMonth}-${String(d).padStart(2, '0')}`, l = by[ds] || [], w = dow(ds);
+    const n = l.filter(x => x.state !== 'done').length, over = l.some(x => x.state === 'over');
+    const cnt = l.length ? `<b class="cnum ${over ? 'c-over' : n ? 'c-open' : 'c-done'}">${n || l.length}</b>` : '';
+    const label = `${m} 月 ${d} 日，${l.length ? `${l.length} 件${over ? '，有逾期' : ''}` : '沒有事項'}`;
+    cells += `<button class="cday${ds === now ? ' today' : ''}${w === 0 || w === 6 ? ' off' : ''}" data-act="calDay" data-id="${ds}" aria-label="${label}" aria-pressed="${ds === calSel}"><span>${d}</span>${cnt}</button>`;
+  }
+  const sel = calSel.slice(0, 7) === calMonth ? calSel : '', list = (by[sel] || []).sort((a, b) => (+!!b.t.gov - +!!a.t.gov) || (a.t.order || 0) - (b.t.order || 0));
+  const rows = list.map(({ t, o, state }) => `<div class="row${state === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(t.title)}</div><div class="meta">${pills(t)}${state === 'over' ? `<span class="when-bad">已逾期 ${diff(now, o.due)} 天</span>` : ''}${o.stage === 'send' && !o.closed ? '<span class="when-warn">待送出</span>' : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`);
+  const head = `<div class="calhead"><button class="btn" data-act="calPrev" aria-label="上個月">‹</button><h2>民國 ${y - 1911} 年 ${m} 月</h2><button class="btn" data-act="calNext" aria-label="下個月">›</button><button class="btn" data-act="calToday">回到今天</button></div>`;
+  const grid = `<div class="calendar"><div class="cweek" aria-hidden="true">${[...WZ].map(z => `<span>${z}</span>`).join('')}</div><div class="cgrid">${cells}</div></div>`;
+  const legend = '<div class="meta"><b class="cnum c-over">1</b>逾期<b class="cnum c-open">1</b>未完成<b class="cnum c-done">1</b>已結案</div>';
+  const day = !sel ? '<div class="empty">點日期可以看當天的事項。</div>' : rows.length ? section(rocDate(sel), '', rows) : `<div class="empty">${rocDate(sel)}沒有到期的事項。</div>`;
+  return head + grid + legend + day;
+}
 function renderSet() {
   const m = meta ? `${esc(meta.date)}：${esc(meta.sent)}` : '還沒有紀錄';
-  return `<section><h2>帳號</h2><div class="card"><div>${esc(user.email)}（${esc(myName)}）</div><div class="actions start"><button class="btn" data-act="logout">登出</button></div></div></section>
+  return `<section><h2>帳號</h2><div class="card"><div>${esc(user.email)}（${esc(myName)}）</div><div class="actions start"><button class="btn logout" data-act="logout">登出</button></div></div></section>
   <section><h2>LINE 每日提醒</h2><div class="card"><div>上次檢查：${m}</div></div></section>
   <section><h2>加到桌面與主畫面</h2><div class="card"><div>iPhone：用 Safari 開啟這一頁，點「分享」，再點「加入主畫面」。</div><div>電腦：用 Chrome 或 Edge 開啟，點網址列右側的「安裝」圖示。</div></div></section>
   <section><h2>資料</h2><div class="card"><div>目前有 ${tasks.length} 件事項。匯入只會新增還沒有的資料，不會覆蓋已存在的事項與打勾紀錄。</div><label>選擇匯入檔<input type="file" id="impFile" accept=".json,application/json"></label><div id="impInfo"></div><div class="actions start"><button class="btn primary" data-act="import" id="impBtn" hidden>確認匯入</button><button class="btn" data-act="backup">下載備份</button></div></div></section>`;
@@ -106,11 +141,12 @@ function render() {
   $('date').textContent = rocDate(today());
   document.querySelectorAll('.tab').forEach(b => b.dataset.view === view ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
   document.querySelectorAll('.chip').forEach(b => b.setAttribute('aria-pressed', b.dataset.who === who));
-  document.querySelector('.people').hidden = view === 'set';
+  document.querySelector('.people').hidden = view === 'set' || view === 'help';
+  $('add').hidden = view === 'help';
   if (!ready.tasks || !ready.records || !ready.quick) return;
   const a = renderToday();
   if (view === 'set' && $('impFile')) return;   // 設定頁正在選檔時不重畫
-  $('view').innerHTML = view === 'today' ? a : view === 'all' ? renderAll() : view === 'log' ? renderLog() : renderSet();
+  $('view').innerHTML = view === 'today' ? a : view === 'all' ? renderAll() : view === 'cal' ? renderCal() : view === 'log' ? renderLog() : view === 'help' ? renderHelp(helpTopic, helpStep) : renderSet();
   staleWarning();
 }
 function staleWarning() {
@@ -119,7 +155,7 @@ function staleWarning() {
   while (d > meta.date && n < 4) { const w = dow(d); if (w > 0 && w < 6) n++; d = addDays(d, -1); }
   if (n >= 3) setStatus(`LINE 每日提醒已有幾個上班日沒有執行（最後一次 ${meta.date}），請通知協助設定的人檢查。`);
 }
-function setView(v, push) { view = ['today', 'all', 'log', 'set'].includes(v) ? v : 'today'; if ($('view').querySelector('#impFile')) $('view').innerHTML = ''; if (push) location.hash = view; render(); }
+function setView(v, push) { view = VIEWS.includes(v) ? v : 'today'; if (view === 'help') { helpTopic = ''; helpStep = 0; } if ($('view').querySelector('#impFile')) $('view').innerHTML = ''; if (push) location.hash = view; render(); }
 
 const refOf = (t, key) => fb.doc(db, collectionFor(t), recordId(t.id, key));
 const stamp = () => ({ by: myName, at: new Date().toISOString(), date: today() });
@@ -145,7 +181,7 @@ function openForm(t) {
   editing = t || null; delArmed = false; $('del').textContent = '刪除'; $('del').hidden = !t;
   $('dlgTitle').textContent = t ? '修改事項' : '新增事項';
   $('fTitle').value = t ? t.title : ''; $('fWho').value = t ? t.who : (who === 'director' ? 'director' : 'admin');
-  $('fFreq').value = t ? t.freq : 'once'; $('fDate').value = t && t.date || today();
+  $('fFreq').value = t ? t.freq : 'once'; $('fDate').value = t && t.date || (view === 'cal' && calSel) || today();
   $('fDay').value = t ? (t.day || 31) : 31; $('fLead').value = t ? (t.lead || 0) : 7; $('fWeekday').value = String(t && t.weekday || 5);
   $('fNote').value = t ? t.note || '' : ''; $('fGov').checked = !!(t && t.gov); $('fVerify').checked = !!(t && t.verify); $('fSend').checked = !!(t && t.needSend); $('fRoll').checked = !!(t && t.rollover);
   $('wVerify').hidden = !(t && t.verify);
@@ -214,7 +250,7 @@ function screen(id) { ['boot', 'login', 'app'].forEach(x => { if ($(x)) $(x).hid
 function enter() {
   try { if (sessionStorage.getItem('updated')) { sessionStorage.removeItem('updated'); setTimeout(() => toast('更新完成'), 1300); } } catch (_) {}
   if (!localStorageHasWho() && (myName === '主任' || myName === '行政')) who = myName === '主任' ? 'director' : 'admin';
-  view = ['today', 'all', 'log', 'set'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'today';
+  view = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'today';
   subscribe(); render();
 }
 function localStorageHasWho() { try { return !!localStorage.getItem('who'); } catch (e) { return false; } }
@@ -224,6 +260,19 @@ document.addEventListener('click', e => {
   if (b.dataset.view) return setView(b.dataset.view, true);
   if (b.dataset.who) { who = b.dataset.who; try { localStorage.setItem('who', who); } catch (_) {} return render(); }
   const a = b.dataset.act; if (!a) return;
+  if (a.startsWith('help')) {
+    if (a === 'helpOpen') { helpTopic = b.dataset.id; helpStep = 0; }
+    if (a === 'helpHome') helpTopic = '';
+    if (a === 'helpNext') helpStep++;
+    if (a === 'helpPrev') helpStep--;
+    render(); return scrollTo(0, 0);
+  }
+  if (a.startsWith('cal')) {
+    if (a === 'calDay') calSel = b.dataset.id;
+    if (a === 'calToday') { calSel = today(); calMonth = calSel.slice(0, 7); }
+    if (a === 'calPrev' || a === 'calNext') { const [y, m] = calMonth.split('-').map(Number), n = new Date(Date.UTC(y, m - 1 + (a === 'calNext' ? 1 : -1), 1)).toISOString().slice(0, 7); calMonth = n; }
+    return render();
+  }
   if (a === 'edit') return openForm(taskOf(b.dataset.id));
   if (a === 'logout') return fb.signOut(auth);
   if (a === 'import') return doImport();
@@ -248,7 +297,7 @@ addEventListener('hashchange', () => { const v = location.hash.slice(1) || 'toda
 document.addEventListener('visibilitychange', () => { if (!document.hidden && user && !$('app').hidden) render(); });
 
 // 新版本提示：比對網站上的檔案，有變動就顯示提示。只由使用者自己按，編輯中不打擾。
-const SITE_FILES = ['index.html', 'app.js', 'logic.js', 'style.css'];
+const SITE_FILES = ['index.html', 'app.js', 'logic.js', 'help.js', 'style.css'];
 let siteBase = null, siteNew = false, siteChecked = 0;
 const readSite = async () => (await Promise.all(SITE_FILES.map(async f => { const r = await fetch(f, { cache: 'no-store' }); if (!r.ok) throw 0; return r.text(); }))).join('\n');
 const showUpdate = () => { if (!$('updateBar')) return; $('updateBar').hidden = !siteNew || !!document.querySelector('dialog[open]'); };

@@ -1,0 +1,57 @@
+// 軟體內的使用說明。內容與畫面不同步時，改這一個檔案就好。
+const demoTick = (label, on) => `<span class="tick" aria-hidden="true" ${on ? 'data-on' : ''}><i>✓</i>${label}</span>`;
+const demoRow = ticks => `<div class="list demo" aria-hidden="true"><div class="row"><div class="ticks">${ticks}</div><div class="main"><div class="title">範例事項</div></div></div></div>`;
+
+export const HELP = [
+  { id: 'daily', title: '每天怎麼用', desc: '打開後先看哪裡、怎麼打勾', steps: [
+    { t: '先看「今天」', b: '<p>打開後會先看到「今天」頁，由上到下依序是：已完成待送出、已逾期、今天要做、本週要做、快到期。</p><p>最上方的數字是各類的件數。</p>' },
+    { t: '選負責人', b: '<p>點「全部、主任、行政」可以切換要看誰的事項。系統會記住你上次的選擇。</p>' },
+    { t: '做完就打勾', b: `<p>做完後點事項左邊的「完成」。</p>${demoRow(demoTick('完成', true))}<p>打勾後兩邊的人都看得到，也會記在「完成紀錄」。</p>` },
+    { t: '按錯了再按一次', b: '<p>打勾的事項會移到頁面最下方的「今天已處理」，再按一次就取消。</p>' }
+  ] },
+  { id: 'send', title: '完成和已送出的差別', desc: '有些事項要送出才算結案', steps: [
+    { t: '有兩個勾的事項', b: `<p>需要交出去的事項有兩個勾，資料做好但還沒送，都不算結案。</p>${demoRow(demoTick('完成', false) + demoTick('已送出', false))}` },
+    { t: '資料做好時', b: `<p>先按「完成」，事項會移到「今天」頁最上方的「已完成、待送出」，提醒你還沒送。</p>${demoRow(demoTick('完成', true) + demoTick('已送出', false))}` },
+    { t: '真的送出後', b: `<p>再按「已送出」才結案。如果直接按「已送出」，系統會同時記下完成。</p>${demoRow(demoTick('完成', true) + demoTick('已送出', true))}` },
+    { t: '要取消時', b: '<p>已送出的事項，要先取消「已送出」，才能取消「完成」。</p>' }
+  ] },
+  { id: 'cal', title: '用日曆看到期日', desc: '看整個月哪一天有事', steps: [
+    { t: '打開「日曆」', b: '<p>日曆上的數字是當天到期的件數，每個上班日都要做的事項和不定期事項不會列出來。</p><p>紅色是逾期，綠色是還沒做，灰色是已結案。</p>' },
+    { t: '換月份', b: '<p>按月份兩側的箭頭換月，按「回到今天」回到本月。</p>' },
+    { t: '點日期', b: '<p>點某一天，日曆下方會列出當天的事項，可以直接打勾。</p><p>在這裡按「＋ 新增事項」，期限會自動帶入你點的日期。</p>' }
+  ] },
+  { id: 'edit', title: '新增和修改事項', desc: '新增、改期限、刪除', steps: [
+    { t: '新增事項', b: '<p>按右下角「＋ 新增事項」，填要做的事、負責人和多久一次，再按「儲存」。</p><p>備註請勿填幼兒姓名或個資。</p>' },
+    { t: '修改事項', b: '<p>到「全部事項」，點事項右邊的「修改」。</p>' },
+    { t: '設定提前提醒', b: '<p>「提前幾天提醒」決定事項何時出現在「快到期」，例如填 7，就是到期前 7 天開始提醒。</p>' },
+    { t: '遇假日順延', b: '<p>勾選後，到期日遇到週末或固定日期的國定假日，會順延到下一個上班日。</p><p>春節和補假每年不同，系統不會自動順延，要手動改。</p>' },
+    { t: '刪除事項', b: '<p>在修改畫面按「刪除」，再按一次「確定刪除？」才會刪掉。</p>' },
+    { t: '不定期事項', b: '<p>不定期事項不會到期，做了之後到「全部事項」按「今天做了」，就會留下紀錄。</p>' }
+  ] },
+  { id: 'line', title: 'LINE 提醒', desc: '什麼時候會收到通知', steps: [
+    { t: '提醒時間', b: '<p>週一到週五約 08:00 和 10:00 檢查，時間可能晚幾分鐘。</p><p>有逾期、今天到期或新的快到期事項才會發，沒有事就不發。</p>' },
+    { t: '提醒內容', b: '<p>大家收到同一則，裡面分主任和行政。</p><p>每個上班日要做的事項和不定期事項不會出現在 LINE，請看「今天」頁。</p>' },
+    { t: '如果沒收到', b: '<p>到「設定」看「上次檢查」的日期。連續幾個上班日沒有執行時，畫面上方會出現提示，請通知協助設定的人。</p>' },
+    { t: '不要分享帳號', b: '<p>提醒會發給 LINE 官方帳號的所有好友，請不要把帳號分享給其他人。</p>' }
+  ] },
+  { id: 'install', title: '加到主畫面和電腦', desc: '像 App 一樣打開', steps: [
+    { t: 'iPhone', b: '<p>用 Safari 開啟這個網站，點「分享」，再點「加入主畫面」。</p>' },
+    { t: '電腦', b: '<p>用 Chrome 或 Edge 開啟，點網址列右側的「安裝」圖示。</p>' }
+  ] },
+  { id: 'other', title: '更新、密碼和備份', desc: '其他常見問題', steps: [
+    { t: '看到「有新版本」', b: '<p>按提示再按「立即更新」。打勾和事項都已存好，更新不會影響資料，也不用重新登入。</p>' },
+    { t: '忘記密碼', b: '<p>登出後，在登入畫面填電子郵件，按「忘記密碼」，再到信箱點連結重設。沒收到請看垃圾信件匣。</p>' },
+    { t: '顯示沒有存到', b: '<p>通常是網路不穩。確認網路後再按一次。</p>' },
+    { t: '下載備份', b: '<p>到「設定」的「資料」按「下載備份」，檔案會存到這台裝置。</p>' }
+  ] }
+];
+
+export function renderHelp(topic, step) {
+  const h = HELP.find(x => x.id === topic);
+  if (!h) return `<section><h2>使用說明</h2><div class="list">${HELP.map(x => `<button class="helpitem" data-act="helpOpen" data-id="${x.id}"><span class="main"><span class="title">${x.title}</span><span class="meta">${x.desc}</span></span><span class="go" aria-hidden="true">›</span></button>`).join('')}</div></section>`;
+  const i = Math.min(step, h.steps.length - 1), s = h.steps[i], last = i === h.steps.length - 1;
+  return `<section><button class="back" data-act="helpHome">‹ 回說明目錄</button><h2>${h.title}<small>第 ${i + 1} 步，共 ${h.steps.length} 步</small></h2>
+  <div class="bar" aria-hidden="true"><i style="width:${(i + 1) / h.steps.length * 100}%"></i></div>
+  <div class="card helpstep"><h3>${s.t}</h3>${s.b}</div>
+  <div class="actions"><button class="btn" data-act="helpPrev" ${i ? '' : 'hidden'}>上一步</button><button class="btn primary" data-act="${last ? 'helpHome' : 'helpNext'}">${last ? '看完了' : '下一步'}</button></div></section>`;
+}
