@@ -212,6 +212,7 @@ function finishBoot(id) {
 }
 function screen(id) { ['boot', 'login', 'app'].forEach(x => { if ($(x)) $(x).hidden = x !== id; }); }
 function enter() {
+  try { if (sessionStorage.getItem('updated')) { sessionStorage.removeItem('updated'); setTimeout(() => toast('更新完成'), 1300); } } catch (_) {}
   if (!localStorageHasWho() && (myName === '主任' || myName === '行政')) who = myName === '主任' ? 'director' : 'admin';
   view = ['today', 'all', 'log', 'set'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'today';
   subscribe(); render();
@@ -257,10 +258,15 @@ async function checkSite(force) {
   try { const t = await readSite(); if (siteBase === null) siteBase = t; else if (t !== siteBase) { siteNew = true; showUpdate(); } } catch (_) {}
 }
 const updateBar = $('updateBar');
-if (updateBar) updateBar.onclick = async () => {
-  try { await Promise.all(SITE_FILES.map(f => fetch(f, { cache: 'reload' }))); } catch (_) {}
-  location.reload();
-};
+if (updateBar && $('updDlg')) {
+  updateBar.onclick = () => $('updDlg').showModal();
+  $('updLater').onclick = () => $('updDlg').close();
+  $('updForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await Promise.all(SITE_FILES.map(f => fetch(f, { cache: 'reload' }))); sessionStorage.setItem('updated', '1'); } catch (_) {}
+    location.reload();
+  });
+}
 document.querySelectorAll('dialog').forEach(d => d.addEventListener('close', showUpdate));
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkSite(); });
 setInterval(() => { if (!document.hidden) checkSite(true); }, 600000);
