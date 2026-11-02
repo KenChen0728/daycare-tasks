@@ -75,5 +75,15 @@
   <p class="hint">打勾和已儲存的事項都已存好，更新不會影響資料，也不用重新登入。</p>
   <div class="actions"><button type="button" class="btn" id="updLater">稍後再說</button><button class="btn primary">立即更新</button></div>
 </form></dialog>
+<dialog id="pwDlg"><form id="pwForm" method="dialog">
+  <h2>修改密碼</h2>
+  <p class="hint">新密碼只有你自己知道，其他人和協助者都看不到。</p>
+  <input type="email" id="pwUser" autocomplete="username" hidden>
+  <label>目前的密碼<input type="password" id="pwOld" autocomplete="current-password" required></label>
+  <label>新密碼（至少 8 碼）<input type="password" id="pwNew" autocomplete="new-password" minlength="8" required></label>
+  <label>再輸入一次新密碼<input type="password" id="pwNew2" autocomplete="new-password" minlength="8" required></label>
+  <div id="pwMsg" role="status"></div>
+  <div class="actions"><button type="button" class="btn" id="pwCancel">取消</button><button class="btn primary" id="pwSave">儲存</button></div>
+</form></dialog>
 <script type="module" src="app.js"></script>
 </body></html>

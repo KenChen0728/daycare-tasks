@@ -134,7 +134,7 @@ function renderCal() {
 }
 function renderSet() {
   const m = meta ? `${esc(meta.date)}：${esc(meta.sent)}` : '還沒有紀錄';
-  return `<section><h2>帳號</h2><div class="card"><div>${esc(user.email)}（${esc(myName)}）</div><div class="actions start"><button class="btn logout" data-act="logout">登出</button></div></div></section>
+  return `<section><h2>帳號</h2><div class="card"><div>${esc(user.email)}（${esc(myName)}）</div><div class="actions start"><button class="btn" data-act="changePw">修改密碼</button><button class="btn logout" data-act="logout">登出</button></div></div></section>
   <section><h2>LINE 每日提醒</h2><div class="card"><div>上次檢查：${m}</div></div></section>
   <section><h2>加到桌面與主畫面</h2><div class="card"><div>iPhone：用 Safari 開啟這一頁，點「分享」，再點「加入主畫面」。</div><div>電腦：用 Chrome 或 Edge 開啟，點網址列右側的「安裝」圖示。</div></div></section>
   <section><h2>資料</h2><div class="card"><div>目前有 ${tasks.length} 件事項。匯入只會新增還沒有的資料，不會覆蓋已存在的事項與打勾紀錄。</div><label>選擇匯入檔<input type="file" id="impFile" accept=".json,application/json"></label><div id="impInfo"></div><div class="actions start"><button class="btn primary" data-act="import" id="impBtn" hidden>確認匯入</button><button class="btn" data-act="backup">下載備份</button></div></div></section>`;
@@ -208,6 +208,22 @@ async function remove() {
   try { await fb.deleteDoc(fb.doc(db, 'tasks', editing.id)); $('dlg').close(); toast('已刪除'); } catch (e) { toast('沒有刪除成功，請再試一次。'); }
 }
 
+function openPw() { $('pwForm').reset(); $('pwUser').value = user.email; $('pwMsg').textContent = ''; $('pwDlg').showModal(); }
+async function changePw() {
+  const m = $('pwMsg'), pw = $('pwNew').value;
+  if (pw !== $('pwNew2').value) { m.textContent = '兩次輸入的新密碼不一樣。'; return; }
+  m.textContent = '儲存中…'; $('pwSave').disabled = true;
+  try {
+    await fb.reauthenticateWithCredential(user, fb.EmailAuthProvider.credential(user.email, $('pwOld').value));
+    await fb.updatePassword(user, pw);
+    $('pwDlg').close(); toast('密碼已修改，下次請用新密碼登入。');
+  } catch (e) {
+    console.error(e);
+    const c = e.code || '';
+    m.textContent = c === 'auth/invalid-credential' || c === 'auth/wrong-password' ? '目前的密碼不正確。' : c === 'auth/weak-password' ? '新密碼太簡單，請換一組。' : c === 'auth/too-many-requests' ? '嘗試太多次，請稍後再試。' : '沒有改成功，請確認網路後再試一次。';
+  } finally { $('pwSave').disabled = false; }
+}
+
 async function doImport() {
   const { tasks: T = [], records: R = [] } = importData;
   const have = new Set(tasks.map(t => t.id));
@@ -277,6 +293,7 @@ document.addEventListener('click', e => {
   }
   if (a === 'edit') return openForm(taskOf(b.dataset.id));
   if (a === 'logout') return fb.signOut(auth);
+  if (a === 'changePw') return openPw();
   if (a === 'import') return doImport();
   if (a === 'backup') return backup();
   act(a, b.dataset.id, b.dataset.key);
@@ -290,6 +307,8 @@ document.addEventListener('change', async e => {
     $('impBtn').hidden = false;
   } catch (_) { importData = null; $('impInfo').textContent = '這個檔案無法讀取。'; $('impBtn').hidden = true; }
 });
+$('pwCancel').onclick = () => $('pwDlg').close();
+$('pwForm').addEventListener('submit', e => { e.preventDefault(); changePw(); });
 $('add').onclick = () => openForm();
 $('cancel').onclick = () => $('dlg').close();
 $('del').onclick = remove; $('fFreq').onchange = syncForm;
@@ -299,7 +318,7 @@ addEventListener('hashchange', () => { const v = location.hash.slice(1) || 'toda
 document.addEventListener('visibilitychange', () => { if (!document.hidden && user && !$('app').hidden) render(); });
 
 // 新版本提示：比對網站上的檔案，有變動就顯示提示。只由使用者自己按，編輯中不打擾。
-const SITE_FILES = ['index.html', 'app.js', 'logic.js', 'help.js', 'style.css'];
+const SITE_FILES = ['index.html', 'app.js', 'logic.js', 'help.js', 'style.css', 'vendor/firebase.js'];
 let siteBase = null, siteNew = false, siteChecked = 0;
 const readSite = async () => (await Promise.all(SITE_FILES.map(async f => { const r = await fetch(f, { cache: 'no-store' }); if (!r.ok) throw 0; return r.text(); }))).join('\n');
 const showUpdate = () => { if (!$('updateBar')) return; $('updateBar').hidden = !siteNew || !!document.querySelector('dialog[open]'); };
