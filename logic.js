@@ -83,20 +83,26 @@ export function buildReminder(tasks, today, get) {
   return { lists: out, soonIds };
 }
 
-const md = s => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
-const line = x => `・${x.t.title}（${md(x.o.due)}）${x.t.gov ? '【交縣府】' : ''}${x.o.stage === 'send' ? '【已完成，待送出】' : ''}`;
+const WZ = '日一二三四五六';
+const md = s => `${+s.slice(5, 7)}/${+s.slice(8, 10)}（${WZ[dow(s)]}）`;
+function item(x, today) {
+  const d = diff(x.o.due, today), when = d < 0 ? `逾期 ${-d} 天` : d === 0 ? '今天到期' : `剩 ${d} 天`;
+  const tags = [x.t.gov ? '交縣府' : '', x.o.stage === 'send' ? '已完成，待送出' : ''].filter(Boolean);
+  return `・${x.t.title}\n　${md(x.o.due)} ${when}${tags.length ? '｜' + tags.join('｜') : ''}`;
+}
 
-export function formatReminder(rem, url) {
+export function formatReminder(rem, url, today) {
   const c = k => rem.lists.director[k].length + rem.lists.admin[k].length;
-  const parts = [`逾期 ${c('over')} 件、今天到期 ${c('today')} 件、快到期 ${c('soon')} 件`];
+  const sum = [['over', '逾期'], ['today', '今天到期'], ['soon', '快到期']].filter(([k]) => c(k)).map(([k, n]) => `${n} ${c(k)} 件`).join('、');
+  const parts = [`📋 待辦提醒 ${md(today)}\n${sum}`];
   for (const who of ['director', 'admin']) {
     const l = rem.lists[who], sec = [];
-    if (l.over.length) sec.push('逾期', ...l.over.map(line));
-    if (l.today.length) sec.push('今天到期', ...l.today.map(line));
-    if (l.soon.length) sec.push('快到期', ...l.soon.map(line));
-    if (sec.length) parts.push(`【${WHO[who]}】\n` + sec.join('\n'));
+    if (l.over.length) sec.push('🔴 逾期\n' + l.over.map(x => item(x, today)).join('\n'));
+    if (l.today.length) sec.push('🟠 今天到期\n' + l.today.map(x => item(x, today)).join('\n'));
+    if (l.soon.length) sec.push('🟡 快到期\n' + l.soon.map(x => item(x, today)).join('\n'));
+    if (sec.length) parts.push(`━━ ${WHO[who]} ━━\n` + sec.join('\n\n'));
   }
-  parts.push(url);
+  parts.push('打開待辦 👇\n' + url);
   return parts.join('\n\n');
 }
 

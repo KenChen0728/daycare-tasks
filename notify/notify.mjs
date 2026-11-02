@@ -68,10 +68,10 @@ if (!tasks.length) throw new Error('讀不到任何事項，請檢查資料');
 const map = new Map([...records, ...quick].map(r => [r.id, r]));
 const get = (id, key) => map.get(recordId(id, key));
 const rem = buildReminder(tasks, today, get);
-const text = formatReminder(rem, APP_URL);
+const text = formatReminder(rem, APP_URL, today);
 
 if (MODE === 'test') {
-  await broadcast(splitText('【測試】這是托嬰中心待辦系統的測試訊息\n\n' + text));
+  await broadcast(splitText('【測試訊息】\n\n' + text));
   console.log('已送出測試訊息');
   process.exit(0);
 }
