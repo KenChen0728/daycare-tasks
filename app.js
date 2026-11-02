@@ -187,9 +187,9 @@ async function backup() {
 }
 
 function subscribe() {
-  const fail = e => { console.error(e); setStatus('資料讀取失敗。若持續發生，可能是這個帳號沒有使用權限，請通知協助設定的人。'); };
-  const slow = setTimeout(() => setStatus('資料還沒載入，請確認網路。'), 10000);
-  const ok = k => { ready[k] = true; if (ready.tasks && ready.records && ready.quick) { clearTimeout(slow); setStatus(''); } render(); };
+  const fail = e => { console.error(e); setStatus('資料讀取失敗。若持續發生，可能是這個帳號沒有使用權限，請通知協助設定的人。'); finishBoot('app'); };
+  const slow = setTimeout(() => { setStatus('資料還沒載入，請確認網路。'); finishBoot('app'); }, 10000);
+  const ok = k => { ready[k] = true; if (ready.tasks && ready.records && ready.quick) { clearTimeout(slow); setStatus(''); finishBoot('app'); } render(); };
   const apply = (s, k) => { s.docChanges().forEach(c => c.type === 'removed' ? recs.delete(c.doc.id) : recs.set(c.doc.id, { ...c.doc.data(), id: c.doc.id })); ok(k); };
   unsub = [
     fb.onSnapshot(fb.collection(db, 'tasks'), s => { tasks = s.docs.map(d => ({ ...d.data(), id: d.id })); ok('tasks'); }, fail),
@@ -198,9 +198,20 @@ function subscribe() {
     fb.onSnapshot(fb.doc(db, 'meta', 'reminder'), s => { meta = s.exists() ? s.data() : null; render(); }, () => {})
   ];
 }
+// 啟動進度條：登入狀態與資料都準備好才跑到 100%，再進入畫面。
+let bootTimer = null, bootPct = 0, bootEnding = false, bootStart = 0;
+function setBoot(p) { bootPct = p; if ($('bootBar')) { $('bootBar').style.width = p + '%'; $('bootPct').textContent = Math.round(p) + '%'; } }
+function startBoot() {
+  clearInterval(bootTimer); bootEnding = false; bootStart = Date.now(); setBoot(0); screen('boot');
+  bootTimer = setInterval(() => setBoot(bootPct + (90 - bootPct) * .07), 80);
+}
+function finishBoot(id) {
+  if (bootEnding) return; bootEnding = true;
+  // 至少跑 0.8 秒，進度才看得出來。
+  setTimeout(() => { clearInterval(bootTimer); setBoot(100); setTimeout(() => screen(id), 300); }, Math.max(0, 800 - (Date.now() - bootStart)));
+}
 function screen(id) { ['boot', 'login', 'app'].forEach(x => { if ($(x)) $(x).hidden = x !== id; }); }
 function enter() {
-  screen('app');
   if (!localStorageHasWho() && (myName === '主任' || myName === '行政')) who = myName === '主任' ? 'director' : 'admin';
   view = ['today', 'all', 'log', 'set'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'today';
   subscribe(); render();
@@ -258,6 +269,7 @@ checkSite(true);
 if (firebaseConfig.apiKey.startsWith('PASTE')) {
   document.body.innerHTML = '<div class="wrap"><h1>托嬰中心待辦</h1><div class="empty">系統還沒完成設定。</div></div>';
 } else {
+  startBoot();
   const app = fb.initializeApp(firebaseConfig);
   auth = fb.getAuth(app); db = fb.getFirestore(app);
   $('loginForm').addEventListener('submit', async e => {
@@ -283,7 +295,8 @@ if (firebaseConfig.apiKey.startsWith('PASTE')) {
   fb.onAuthStateChanged(auth, async u => {
     unsub.forEach(f => f()); unsub = []; recs = new Map(); tasks = []; ready = { tasks: false, records: false, quick: false };
     user = u;
-    if (!u) return screen('login');
+    if (!u) return finishBoot('login');
+    startBoot();
     myName = await nameOf(u.email);
     enter();
   });
