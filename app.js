@@ -21,6 +21,13 @@ function ruleText(t) {
   return (t.months || []).map(m => MZ[m] + '月').join('、') + '（' + end + '）' + roll;
 }
 
+// 身分由登入帳號決定，不用自己選。這裡存的是信箱的雜湊值，專案公開也不會直接露出信箱。
+const PEOPLE = { 'b97e50eefac19a3b8b06647c29f7da8f4f3a249b10988b40e1cbe04610e327a9': '主任', '655df5cc1ff2921edad3246c3e5a1876c13d8235469f40a689ccb067a05cbcbe': '行政', '83e86d990327eeb937a1f55b6161cfd52371e98499c73aaa977bfeeb1835ece8': '協助者' };
+async function nameOf(email) {
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(email.trim().toLowerCase()));
+  return PEOPLE[[...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('')] || email;
+}
+let myName = '';
 let db, auth, user, tasks = [], recs = new Map(), meta = null, ready = { tasks: false, records: false, quick: false };
 let view = 'today', who = 'all', editing = null, delArmed = false, unsub = [], importData = null;
 try { who = localStorage.getItem('who') || 'all'; } catch (e) {}
@@ -90,7 +97,7 @@ function renderLog() {
 }
 function renderSet() {
   const m = meta ? `${esc(meta.date)}：${esc(meta.sent)}` : '還沒有紀錄';
-  return `<section><h2>帳號</h2><div class="card"><div>${esc(user.email)}（${esc(user.displayName || '')}）</div><div class="actions start"><button class="btn" data-act="logout">登出</button></div></div></section>
+  return `<section><h2>帳號</h2><div class="card"><div>${esc(user.email)}（${esc(myName)}）</div><div class="actions start"><button class="btn" data-act="logout">登出</button></div></div></section>
   <section><h2>LINE 每日提醒</h2><div class="card"><div>上次檢查：${m}</div></div></section>
   <section><h2>加到桌面與主畫面</h2><div class="card"><div>iPhone：用 Safari 開啟這一頁，點「分享」，再點「加入主畫面」。</div><div>電腦：用 Chrome 或 Edge 開啟，點網址列右側的「安裝」圖示。</div></div></section>
   <section><h2>資料</h2><div class="card"><div>目前有 ${tasks.length} 件事項。匯入只會新增還沒有的資料，不會覆蓋已存在的事項與打勾紀錄。</div><label>選擇匯入檔<input type="file" id="impFile" accept=".json,application/json"></label><div id="impInfo"></div><div class="actions start"><button class="btn primary" data-act="import" id="impBtn" hidden>確認匯入</button><button class="btn" data-act="backup">下載備份</button></div></div></section>`;
@@ -115,7 +122,7 @@ function staleWarning() {
 function setView(v, push) { view = ['today', 'all', 'log', 'set'].includes(v) ? v : 'today'; if ($('view').querySelector('#impFile')) $('view').innerHTML = ''; if (push) location.hash = view; render(); }
 
 const refOf = (t, key) => fb.doc(db, collectionFor(t), recordId(t.id, key));
-const stamp = () => ({ by: user.displayName || user.email, at: new Date().toISOString(), date: today() });
+const stamp = () => ({ by: myName, at: new Date().toISOString(), date: today() });
 async function act(a, id, key) {
   const t = taskOf(id); if (!t) return toast('這件事項已被刪除，無法更改。');
   const ref = refOf(t, key), s = stamp(), r = getRec(id, key);
@@ -191,10 +198,10 @@ function subscribe() {
     fb.onSnapshot(fb.doc(db, 'meta', 'reminder'), s => { meta = s.exists() ? s.data() : null; render(); }, () => {})
   ];
 }
-function screen(id) { ['login', 'pick', 'app'].forEach(x => $(x).hidden = x !== id); }
+function screen(id) { ['login', 'app'].forEach(x => $(x).hidden = x !== id); }
 function enter() {
   screen('app');
-  if (!localStorageHasWho() && (user.displayName === '主任' || user.displayName === '行政')) who = user.displayName === '主任' ? 'director' : 'admin';
+  if (!localStorageHasWho() && (myName === '主任' || myName === '行政')) who = myName === '主任' ? 'director' : 'admin';
   view = ['today', 'all', 'log', 'set'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'today';
   subscribe(); render();
 }
@@ -204,7 +211,6 @@ document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.view) return setView(b.dataset.view, true);
   if (b.dataset.who) { who = b.dataset.who; try { localStorage.setItem('who', who); } catch (_) {} return render(); }
-  if (b.dataset.name) return fb.updateProfile(user, { displayName: b.dataset.name }).then(enter).catch(() => toast('沒有存到，請再按一次。'));
   const a = b.dataset.act; if (!a) return;
   if (a === 'edit') return openForm(taskOf(b.dataset.id));
   if (a === 'logout') return fb.signOut(auth);
@@ -244,11 +250,11 @@ if (firebaseConfig.apiKey.startsWith('PASTE')) {
     try { await fb.sendPasswordResetEmail(auth, m); } catch (_) {}
     $('lMsg').textContent = '如果這個信箱有帳號，重設密碼信已寄出，也請看垃圾信件匣。';
   };
-  fb.onAuthStateChanged(auth, u => {
+  fb.onAuthStateChanged(auth, async u => {
     unsub.forEach(f => f()); unsub = []; recs = new Map(); tasks = []; ready = { tasks: false, records: false, quick: false };
     user = u;
     if (!u) return screen('login');
-    if (!u.displayName) return screen('pick');
+    myName = await nameOf(u.email);
     enter();
   });
 }
