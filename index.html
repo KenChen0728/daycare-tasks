@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-Hant-TW"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com">
+<meta name="robots" content="noindex">
+<title>托嬰中心待辦</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="待辦">
+<meta name="theme-color" content="#17695F">
+<link rel="stylesheet" href="style.css">
+</head><body>
+<div class="wrap" id="login" hidden>
+  <h1>托嬰中心待辦</h1>
+  <form id="loginForm" class="card">
+    <label>電子郵件<input type="email" id="lEmail" autocomplete="username" required></label>
+    <label>密碼<input type="password" id="lPw" autocomplete="current-password" required></label>
+    <div class="actions"><button type="button" class="btn" id="forgot">忘記密碼</button><button class="btn primary">登入</button></div>
+    <div id="lMsg" role="status"></div>
+  </form>
+</div>
+<div class="wrap" id="pick" hidden>
+  <h1>第一次使用</h1>
+  <p>請選擇你的身分，打勾時會記下是誰完成的。</p>
+  <div class="actions start"><button class="btn primary" data-name="主任">我是主任</button><button class="btn primary" data-name="行政">我是行政</button><button class="btn" data-name="協助者">協助設定</button></div>
+</div>
+<div class="wrap" id="app" hidden>
+  <header><h1>托嬰中心待辦</h1><div class="date" id="date"></div><div class="tally" id="tally"></div></header>
+  <nav aria-label="頁面">
+    <button class="tab" data-view="today">今天</button>
+    <button class="tab" data-view="all">全部事項</button>
+    <button class="tab" data-view="log">完成紀錄</button>
+    <button class="tab" data-view="set">設定</button>
+  </nav>
+  <div class="people" role="group" aria-label="負責人">
+    <button class="chip" data-who="all">全部</button>
+    <button class="chip" data-who="director">主任</button>
+    <button class="chip" data-who="admin">行政</button>
+  </div>
+  <div id="status" class="status" hidden></div>
+  <main id="view"><div class="empty">正在載入事項…</div></main>
+  <button class="add" id="add">＋ 新增事項</button>
+</div>
+<div class="toast" id="toast" hidden role="status"></div>
+<dialog id="dlg"><form id="frm" method="dialog">
+  <h2 id="dlgTitle">新增事項</h2>
+  <label>要做的事<input type="text" id="fTitle" required maxlength="80"></label>
+  <div class="two">
+    <label>負責人<select id="fWho"><option value="admin">行政</option><option value="director">主任</option></select></label>
+    <label>多久一次<select id="fFreq"><option value="once">只做一次</option><option value="daily">每個上班日</option><option value="weekly">每週</option><option value="monthly">每月</option><option value="months">指定月份</option><option value="adhoc">不定期</option></select></label>
+  </div>
+  <label id="wDate">期限<input type="date" id="fDate"></label>
+  <label id="wWeek">每週星期幾前要完成<select id="fWeekday"><option value="1">週一</option><option value="2">週二</option><option value="3">週三</option><option value="4">週四</option><option value="5">週五</option></select></label>
+  <div id="wMonths"><div class="sub">哪幾個月</div><div class="mgrid" id="mgrid"></div></div>
+  <div class="two" id="wDay">
+    <label>當月幾號到期（31＝月底）<input type="number" id="fDay" min="1" max="31"></label>
+    <label>提前幾天提醒<input type="number" id="fLead" min="0" max="120"></label>
+  </div>
+  <label>備註（請勿填幼兒姓名或個資）<input type="text" id="fNote" maxlength="120"></label>
+  <label class="check" id="wRoll"><input type="checkbox" id="fRoll">遇假日順延到下一個上班日</label>
+  <label class="check" id="wSend"><input type="checkbox" id="fSend">要送出，送出才算結案</label>
+  <label class="check"><input type="checkbox" id="fGov">要交給縣政府</label>
+  <label class="check" id="wVerify"><input type="checkbox" id="fVerify">日期還要確認</label>
+  <div class="actions">
+    <button type="button" class="btn danger" id="del" hidden>刪除</button>
+    <button type="button" class="btn" id="cancel">取消</button>
+    <button type="submit" class="btn primary">儲存</button>
+  </div>
+</form></dialog>
+<script type="module" src="app.js"></script>
+</body></html>

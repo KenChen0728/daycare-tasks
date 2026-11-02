@@ -1,0 +1,45 @@
+name: 每日提醒
+on:
+  schedule:
+    # 台灣時間週一到週五 07:55、09:55 排程。GitHub 整點最容易塞車，提早幾分鐘才能接近 08:00、10:00。
+    - cron: '55 23 * * 0-4'
+    - cron: '55 1 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      test:
+        description: 發測試訊息（不影響每日提醒）
+        type: boolean
+        default: true
+permissions:
+  contents: write
+concurrency: remind
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 檢查事項並發送 LINE
+        run: node notify/notify.mjs
+        env:
+          BOT_EMAIL: ${{ secrets.BOT_EMAIL }}
+          BOT_PASSWORD: ${{ secrets.BOT_PASSWORD }}
+          LINE_TOKEN: ${{ secrets.LINE_TOKEN }}
+          SLOT: ${{ github.event.schedule == '55 23 * * 0-4' && 'am' || 'late' }}
+          MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.test) && 'test' || 'daily' }}
+      # GitHub 會停用 60 天沒有更新的定時工作，所以每月留一筆紀錄。
+      - name: 每月維持定時工作
+        if: github.event_name == 'schedule'
+        run: |
+          stamp=$(TZ=Asia/Taipei date +%Y-%m)
+          if [ "$(cat .github/last-active.txt 2>/dev/null)" != "$stamp" ]; then
+            echo "$stamp" > .github/last-active.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/last-active.txt
+            git commit -m "每月維持定時工作 $stamp"
+            git push
+          fi

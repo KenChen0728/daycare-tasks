@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 只有這裡列出的帳號能使用。電子郵件請全部用小寫。
+    function staff() {
+      return request.auth != null && request.auth.token.email in [
+        'HEDY_EMAIL', 'ADMIN_EMAIL', 'KEN_EMAIL'
+      ];
+    }
+    function bot() {
+      return request.auth != null && request.auth.token.email == 'BOT_EMAIL';
+    }
+    function validTask() {
+      let d = request.resource.data;
+      return d.title is string && d.title.size() > 0 && d.title.size() <= 80
+        && d.who in ['director', 'admin'] && d.note is string && d.note.size() <= 120
+        && d.freq in ['once', 'daily', 'weekly', 'monthly', 'months', 'adhoc'];
+    }
+    function validRecord() {
+      let d = request.resource.data;
+      return d.taskId is string && d.key is string && d.title is string && d.title.size() <= 80;
+    }
+    match /tasks/{id} {
+      allow read: if staff() || bot();
+      allow delete: if staff();
+      allow create, update: if staff() && validTask();
+    }
+    match /records/{id} {
+      allow read: if staff() || bot();
+      allow delete: if staff();
+      allow create, update: if staff() && validRecord();
+    }
+    match /quick/{id} {
+      allow read: if staff() || bot();
+      allow delete: if staff();
+      allow create, update: if staff() && validRecord();
+    }
+    match /meta/{id} {
+      allow read: if staff() || bot();
+      allow write: if bot();
+    }
+  }
+}
