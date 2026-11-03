@@ -305,7 +305,7 @@ async function doImport() {
 }
 async function backup() {
   const url = URL.createObjectURL(new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), tasks, records: [...recs.values()] }, null, 1)], { type: 'application/json' }));
-  const a = document.createElement('a'); a.href = url; a.download = `托嬰中心待辦備份-${today()}.json`; a.click(); URL.revokeObjectURL(url);
+  const a = document.createElement('a'); a.href = url; a.download = `萬丹公托待辦備份-${today()}.json`; a.click(); URL.revokeObjectURL(url);
 }
 
 // 資料更新：每項只做一次，已更新過的不再動，之後刪改 KPI 不會被加回來。
@@ -438,7 +438,7 @@ setInterval(() => { if (!document.hidden) checkSite(true); }, 600000);
 checkSite(true);
 
 if (firebaseConfig.apiKey.startsWith('PASTE')) {
-  document.body.innerHTML = '<div class="wrap"><h1>托嬰中心待辦</h1><div class="empty">系統還沒完成設定。</div></div>';
+  document.body.innerHTML = '<div class="wrap"><h1>萬丹公托待辦</h1><div class="empty">系統還沒完成設定。</div></div>';
 } else {
   startBoot();
   const app = fb.initializeApp(firebaseConfig);
