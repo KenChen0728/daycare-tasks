@@ -137,7 +137,9 @@ export function bucket(t, o, today) {
   if (d < 0) return 'over';
   if (t.freq === 'daily' || d === 0) return 'today';
   if (t.freq === 'weekly') return 'week';
-  return d <= (t.lead || 0) ? 'soon' : 'later';
+  // 一律到期前一個月開始提醒。自辦研習照計畫算出的日子出現（核備課程前兩週、成果報告課程結束後）。
+  const soon = t.plan ? d <= (t.lead || 0) : o.due <= addMonth(today);
+  return soon ? 'soon' : 'later';
 }
 
 const byDue = (a, b) => a.o.due.localeCompare(b.o.due) || (+!!b.t.gov - +!!a.t.gov) || (a.t.order || 0) - (b.t.order || 0);

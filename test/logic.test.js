@@ -87,3 +87,15 @@ test('自辦研習：課程很近時從今天開始', () => {
   assert.equal(bucket(gov,nextOcc(gov,'2027-04-05',none),'2027-04-05'),'soon');
   const [,g2]=planTasks({id:'p',deadline:'2027-04-01',start:'2027-04-05',end:'2027-04-05'},'2027-04-05'); assert.equal(g2.date,'2027-04-05');
 });
+test('到期前一個月才進快到期', () => {
+  const T={id:'t',who:'director',freq:'once',date:'2026-12-31',lead:60,title:'一次'}, o={key:'once',due:T.date,stage:'todo'};
+  assert.equal(bucket(T,o,'2026-11-30'),'later'); assert.equal(bucket(T,o,'2026-12-01'),'soon');
+  assert.equal(bucket({...T,lead:3},o,'2026-12-01'),'soon');
+  const K={...T,freq:'months',months:[1,7],day:31,from:'2026-08-01'};
+  assert.equal(buildReminder([K],'2026-11-03',none).lists.director.soon.length,0);
+  assert.equal(bucket(K,{key:'2027-01',due:'2027-01-31',stage:'todo'},'2026-12-31'),'soon');
+});
+test('自辦研習照計畫的日子出現', () => {
+  const P=planTasks({id:'p',deadline:'2026-12-01',start:'2027-03-10',end:'2027-03-10',time:'',name:''},'2026-11-03'), g=P.find(t=>t.id==='p-gov'), o={key:'once',due:g.date,stage:'todo'};
+  assert.equal(bucket(g,o,'2027-02-23'),'later'); assert.equal(bucket(g,o,'2027-02-24'),'soon');
+});
