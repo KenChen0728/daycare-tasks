@@ -31,19 +31,22 @@ export function addMonth(s) {
 }
 
 /* 完成時自動新增的事項。編號固定，同一期不會重複新增。 */
-export const followUpId = (t, key) => 'fu__' + t.id + '__' + key;
-export function followUpTask(t, key, doneDate) {
-  const f = t.followUp; if (!f) return null;
-  const id = followUpId(t, key);
-  return { id, who: f.who, group: '交辦', freq: 'once', title: f.title, months: [], day: 31, lead: f.lead || 0, gov: false, verify: false,
-    note: `${+key.slice(5, 7)} 月${t.title}完成後自動新增`, needSend: !!f.needSend, rollover: false, from: doneDate, order: Date.now(), date: addMonth(doneDate),
-    either: !!f.either, ...(f.sendLabel ? { sendLabel: f.sendLabel } : {}) };
+const followUpsOf = t => t.followUps || (t.followUp ? [t.followUp] : []);
+export const followUpIds = (t, key) => followUpsOf(t).map((f, i) => 'fu__' + t.id + '__' + key + (i ? '__' + i : ''));
+export function followUpTasks(t, key, doneDate) {
+  const ids = followUpIds(t, key);
+  return followUpsOf(t).map((f, i) => ({ id: ids[i], who: f.who, group: '交辦', freq: 'once', title: f.title, months: [], day: 31, lead: f.lead || 0, gov: false, verify: false,
+    note: `${+doneDate.slice(5, 7)} 月${t.title}完成後自動新增`, needSend: !!f.needSend, rollover: false, from: doneDate, order: Date.now() + i, date: addMonth(doneDate),
+    either: !!f.either, ...(f.sendLabel ? { sendLabel: f.sendLabel } : {}) }));
 }
 
 /* 學期 KPI：下學期 2–7 月、上學期 8–1 月。key 是學期最後一個月，例如 2027-01。 */
 export function termOf(key) {
   const y = +key.slice(0, 4), up = key.endsWith('-01'), ay = y - 1 - 1911;
-  return { key, up, ay, name: `${ay} 學年度${up ? '上' : '下'}學期`, range: up ? '8–1 月' : '2–7 月', end: key + '-31', yearKeys: [y + '-01', y + '-07'] };
+  return { key, up, ay, name: `${ay} 學年度${up ? '上' : '下'}學期`, range: up ? '8–1 月' : '2–7 月', end: key + '-31', yearKeys: [y + '-01', y + '-07'], halfKey: up ? (y - 1) + '-12' : y + '-06' };
+}
+export function keyEnd(key) {
+  return key + '-' + pad(lastDay(+key.slice(0, 4), +key.slice(5, 7)));
 }
 export function termKey(today) {
   const y = +today.slice(0, 4), m = +today.slice(5, 7);

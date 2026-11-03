@@ -1,12 +1,12 @@
 import { firebaseConfig, APP_URL } from './firebase-config.js';
 import * as fb from './vendor/firebase.js';
-import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf, monthOccs, sendLabel, pendingLabel, eitherLabel, followUpTask, followUpId, termOf, termKey, shiftTerm } from './logic.js';
+import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf, monthOccs, sendLabel, pendingLabel, eitherLabel, followUpTasks, followUpIds, termOf, termKey, shiftTerm, keyEnd } from './logic.js';
 import { renderHelp } from './help.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MZ = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二'], WZ = '日一二三四五六';
-const GROUPS = ['交辦', '每日', '每週', '每月', '每季', '每學期', '每年', '不定期'];
+const GROUPS = ['交辦', '每日', '每週', '每月', '每季', '每半年', '每學期', '每年', '不定期'];
 const GMAP = { once: '交辦', daily: '每日', weekly: '每週', monthly: '每月', adhoc: '不定期' };
 const rocDate = s => { const [y, m, d] = s.split('-').map(Number); return `民國 ${y - 1911} 年 ${m} 月 ${d} 日（${WZ[dow(s)]}）`; };
 const short = s => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
@@ -135,7 +135,7 @@ function renderCal() {
 }
 // 學期 KPI：一頁看完這學期做到哪裡。事項本身仍是一般事項，LINE 提醒與日曆照常運作。
 function kpiRow(t, key, label, now) {
-  const r = getRec(t.id, key), done = !!(r && r.doneAt), due = key + '-31', late = !done && due < now;
+  const r = getRec(t.id, key), done = !!(r && r.doneAt), due = keyEnd(key), late = !done && due < now;
   const state = done ? `<span>${esc(r.doneBy || '')} ${short(r.doneDate)} 完成</span>` : late ? `<span class="when-bad">已逾期 ${diff(now, due)} 天</span>` : `<span>${short(due)} 前完成</span>`;
   return `<div class="row${late ? ' over' : ''}">${ticks(t, key)}<div class="main"><div class="title">${esc(label)}</div><div class="meta">${pills(t)}${state}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`;
 }
@@ -146,15 +146,17 @@ function renderKpi() {
   const term = tasks.filter(t => t.kpi === 'term').sort((a, b) => (a.order || 0) - (b.order || 0));
   const year = tasks.filter(t => t.kpi === 'year').sort((a, b) => (a.order || 0) - (b.order || 0));
   const isDone = (t, k) => { const r = getRec(t.id, k); return !!(r && r.doneAt); };
+  const half = tasks.filter(t => t.kpi === 'half').sort((a, b) => (a.order || 0) - (b.order || 0));
   const n = term.filter(t => isDone(t, T.key)).length;
   const head = `<div class="calhead"><button class="btn" data-act="kpiPrev" aria-label="上一學期">‹</button><h2>${T.name}</h2><button class="btn" data-act="kpiNext" aria-label="下一學期">›</button><button class="btn" data-act="kpiNow">本學期</button></div>`;
   const a = `<section><h2>每學期一次<small>${T.range}，完成 ${n} / ${term.length}${left >= 0 ? `，還有 ${left} 天` : ''}</small></h2>${kpiBar(n, term.length)}<div class="list">${term.map(t => kpiRow(t, T.key, t.title, now)).join('')}</div></section>`;
+  const h = half.length ? `<section><h2>每半年一次<small>6、12 月底前</small></h2><div class="list">${half.map(t => kpiRow(t, T.halfKey, t.title, now)).join('')}</div></section>` : '';
   const b = year.map(t => {
     const c = T.yearKeys.filter(k => isDone(t, k)).length;
     const rows = T.yearKeys.map((k, i) => kpiRow(t, k, `${t.title} 第 ${i + 1} 次`, now));
     return `<section><h2>一學年兩次<small>${T.ay} 學年度，完成 ${c} / 2</small></h2>${kpiBar(c, 2)}<div class="list">${rows.join('')}</div><p class="hint">通常上、下學期各一次。上學期就做完兩次時，兩個都打勾，下學期就不會再提醒。</p></section>`;
   }).join('');
-  return head + (term.length || year.length ? a + b : '<div class="empty">KPI 事項設定中，請稍後再開一次。</div>');
+  return head + (term.length || year.length ? a + h + b : '<div class="empty">KPI 事項設定中，請稍後再開一次。</div>');
 }
 function renderSet() {
   const m = meta ? `${esc(meta.date)}：${esc(meta.sent)}` : '還沒有紀錄';
@@ -185,15 +187,15 @@ function setView(v, push) { view = VIEWS.includes(v) ? v : 'today'; if (view ===
 
 // 第一次完成時新增後續事項；已經有了就不動，以免蓋掉修改過的期限。
 async function addFollowUp(t, key, r, s) {
-  if (!t.followUp || (r && r.doneAt)) return null;
-  const f = followUpTask(t, key, s.date); if (taskOf(f.id)) return null;
-  await fb.setDoc(fb.doc(db, 'tasks', f.id), f); return f;
+  if (r && r.doneAt) return '';
+  const list = followUpTasks(t, key, s.date).filter(f => !taskOf(f.id)); if (!list.length) return '';
+  const b = fb.writeBatch(db); list.forEach(f => b.set(fb.doc(db, 'tasks', f.id), f)); await b.commit();
+  return list.map(f => `「${f.title}」`).join('、') + `，${short(list[0].date)} 前完成`;
 }
 // 取消完成時，後續事項還沒動過才一起移除。
 async function dropFollowUp(t, key) {
-  if (!t.followUp) return false;
-  const id = followUpId(t, key); if (!taskOf(id) || getRec(id, 'once')) return false;
-  await fb.deleteDoc(fb.doc(db, 'tasks', id)); return true;
+  const ids = followUpIds(t, key).filter(id => taskOf(id) && !getRec(id, 'once'));
+  await Promise.all(ids.map(id => fb.deleteDoc(fb.doc(db, 'tasks', id)))); return ids.length > 0;
 }
 const refOf = (t, key) => fb.doc(db, collectionFor(t), recordId(t.id, key));
 const stamp = () => ({ by: myName, at: new Date().toISOString(), date: today() });
@@ -202,8 +204,8 @@ async function act(a, id, key) {
   const ref = refOf(t, key), s = stamp(), r = getRec(id, key);
   const base = { taskId: id, key, title: t.title, who: t.who };
   try {
-    if (a === 'done') { await fb.setDoc(ref, { ...base, doneAt: s.at, doneBy: s.by, doneDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, s); toast(fu ? `已完成，已新增「${fu.title}」，${short(fu.date)} 前完成` : t.needSend ? `已完成，記得${sendLabel(t).slice(1)}：` + t.title : '已完成：' + t.title); }
-    if (a === 'sent') { await fb.setDoc(ref, { ...base, ...(r && r.doneAt ? {} : { doneAt: s.at, doneBy: s.by, doneDate: s.date }), sentAt: s.at, sentBy: s.by, sentDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, s); toast(fu ? `${sendLabel(t)}，已新增「${fu.title}」` : `${sendLabel(t)}，結案：` + t.title); }
+    if (a === 'done') { await fb.setDoc(ref, { ...base, doneAt: s.at, doneBy: s.by, doneDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, s); toast(fu ? `已完成，已新增${fu}` : t.needSend ? `已完成，記得${sendLabel(t).slice(1)}：` + t.title : '已完成：' + t.title); }
+    if (a === 'sent') { await fb.setDoc(ref, { ...base, ...(r && r.doneAt ? {} : { doneAt: s.at, doneBy: s.by, doneDate: s.date }), sentAt: s.at, sentBy: s.by, sentDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, s); toast(fu ? `${sendLabel(t)}，已新增${fu}` : `${sendLabel(t)}，結案：` + t.title); }
     if (a === 'undoSent') { await fb.updateDoc(ref, { sentAt: fb.deleteField(), sentBy: fb.deleteField(), sentDate: fb.deleteField() }); toast('已取消' + sendLabel(t).slice(1)); }
     if (a === 'undoDone') { await fb.deleteDoc(ref); toast(await dropFollowUp(t, key) ? '已取消完成，自動新增的事項也移除了' : '已取消完成'); }
   } catch (e) { console.error(e); toast('沒有存到，請再按一次。'); }
@@ -231,7 +233,7 @@ async function save() {
   if (freq === 'months' && !months.length) return toast('請至少選一個月份。');
   const old = editing, title = $('fTitle').value.trim(); if (!title) return;
   const group = freq === 'months' ? (old && old.freq === 'months' ? old.group : (months.length === 1 ? '每年' : '每季')) : GMAP[freq];
-  const keep = Object.fromEntries(['kpi', 'followUp', 'either', 'sendLabel'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
+  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
   const data = { ...keep, who: $('fWho').value, group, freq, title, months: freq === 'monthly' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : freq === 'months' ? months : [],
     day: +$('fDay').value || 31, lead: +$('fLead').value || 0, gov: $('fGov').checked, verify: $('fVerify').checked, note: $('fNote').value.trim(),
     needSend: freq !== 'daily' && freq !== 'adhoc' && $('fSend').checked, rollover: (freq === 'monthly' || freq === 'months') && $('fRoll').checked, from: old ? old.from : today(), order: old ? old.order : Date.now() };
@@ -277,17 +279,26 @@ async function backup() {
   const a = document.createElement('a'); a.href = url; a.download = `托嬰中心待辦備份-${today()}.json`; a.click(); URL.revokeObjectURL(url);
 }
 
-// 資料更新：只做一次。外聘督導已有 followUp 就代表做過，之後刪改 KPI 不會被加回來。
-const KPI = { kpi: 'term', group: '每學期', freq: 'months', months: [1, 7], day: 31, lead: 60, from: '2026-08-01' };
+// 資料更新：每項只做一次，已更新過的不再動，之後刪改 KPI 不會被加回來。
+const KPI = { group: '每學期', freq: 'months', months: [1, 7], day: 31, lead: 60, from: '2026-08-01' };
+const SHARED = { who: 'director', either: true, lead: 31 };
+const after = (name, sat) => [{ ...SHARED, title: sat }, { ...SHARED, title: name + '成果報告書', needSend: true, sendLabel: '已印出' }];
+const AFTER = { 'kpi-meeting': after('親師座談會', '親師座談會活動滿意度調查'), 'kpi-family': after('親子活動', '親子活動滿意度調查') };
 const NEW_KPI = [['kpi-meeting', '親師座談會', 'term', 1], ['kpi-family', '親子活動', 'term', 2], ['kpi-parenting', '親職講座', 'term', 3], ['kpi-community', '社區宣導', 'year', 5]];
+const HALF = { kpi: 'half', group: '每半年', months: [6, 12], day: 31, lead: 60, from: '2026-08-01', order: 4, followUps: [{ ...SHARED, title: '滿意度成果報告書' }] };
+let upgrading = false;
 async function upgradeData() {
-  const sup = tasks.find(t => t.title === '外聘督導');
-  if (!sup || sup.followUp) return;
-  const b = fb.writeBatch(db), sat = tasks.find(t => t.title === '家長滿意度調查');
-  b.set(fb.doc(db, 'tasks', sup.id), { followUp: { title: '外聘督導成果報告書', who: 'director', either: true, needSend: true, sendLabel: '已印出', lead: 31 } }, { merge: true });
-  if (sat) b.set(fb.doc(db, 'tasks', sat.id), { ...KPI, order: 4 }, { merge: true });
-  for (const [id, title, kpi, order] of NEW_KPI) b.set(fb.doc(db, 'tasks', id), { ...KPI, id, title, kpi, order, who: 'director', note: '', gov: false, verify: false, needSend: false, rollover: false });
-  try { await b.commit(); } catch (e) { console.error(e); }
+  if (upgrading) return;
+  const b = fb.writeBatch(db), sup = tasks.find(t => t.title === '外聘督導'), sat = tasks.find(t => t.title === '家長滿意度調查'); let n = 0;
+  const put = (id, d, merge) => { b.set(fb.doc(db, 'tasks', id), d, merge ? { merge: true } : {}); n++; };
+  if (sup && !sup.followUp) {
+    put(sup.id, { followUp: { ...SHARED, title: '外聘督導成果報告書', needSend: true, sendLabel: '已印出' } }, true);
+    for (const [id, title, kpi, order] of NEW_KPI) put(id, { ...KPI, id, title, kpi, order, ...(AFTER[id] ? { followUps: AFTER[id] } : {}), who: 'director', note: '', gov: false, verify: false, needSend: false, rollover: false });
+  } else for (const id in AFTER) { const t = taskOf(id); if (t && !t.followUps) put(id, { followUps: AFTER[id] }, true); }
+  if (sat && sat.kpi !== 'half') put(sat.id, HALF, true);
+  if (!n) return;
+  upgrading = true;
+  try { await b.commit(); } catch (e) { console.error(e); } finally { upgrading = false; }
 }
 function subscribe() {
   const fail = e => { console.error(e); setStatus('資料讀取失敗。若持續發生，可能是這個帳號沒有使用權限，請通知協助設定的人。'); finishBoot('app'); };

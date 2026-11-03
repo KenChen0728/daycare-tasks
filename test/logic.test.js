@@ -1,5 +1,5 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays, monthOccs, addMonth, followUpTask, termKey, termOf, shiftTerm, pendingLabel } from '../logic.js';
+import { nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays, monthOccs, addMonth, followUpTasks, keyEnd, termKey, termOf, shiftTerm, pendingLabel } from '../logic.js';
 const none = () => undefined;
 const M = { id:'m', who:'admin', freq:'monthly', months:[1,2,3,4,5,6,7,8,9,10,11,12], day:31, lead:7, from:'2026-11-01', title:'月', gov:false };
 const S = { ...M, id:'s', needSend:true, gov:true };
@@ -44,12 +44,14 @@ test('日曆：每期到期日與結案狀態', () => {
 
 test('加一個月', () => { assert.equal(addMonth('2026-11-03'),'2026-12-03'); assert.equal(addMonth('2027-01-31'),'2027-02-28'); assert.equal(addMonth('2026-12-15'),'2027-01-15'); });
 test('外聘督導完成後產生報告書', () => {
-  const f=followUpTask({id:'d063',title:'外聘督導',followUp:{title:'外聘督導成果報告書',who:'director',either:true,needSend:true,sendLabel:'已印出',lead:14}},'2026-11','2026-11-20');
+  const [f]=followUpTasks({id:'d063',title:'外聘督導',followUp:{title:'外聘督導成果報告書',who:'director',either:true,needSend:true,sendLabel:'已印出',lead:14}},'2026-11','2026-11-20');
   assert.equal(f.id,'fu__d063__2026-11'); assert.equal(f.date,'2026-12-20'); assert.equal(f.freq,'once'); assert.equal(f.needSend,true);
   assert.equal(nextOcc(f,'2026-11-20',none).due,'2026-12-20');
   const g=()=>({doneAt:'x'}); assert.equal(nextOcc(f,'2026-11-21',g).stage,'send'); assert.equal(pendingLabel(f),'待印出');
   assert.equal(nextOcc(f,'2026-11-21',()=>({doneAt:'x',sentAt:'y'})),null);
-  assert.equal(followUpTask({id:'x',title:'y'},'2026-11','2026-11-20'),null);
+  assert.deepEqual(followUpTasks({id:'x',title:'y'},'2026-11','2026-11-20'),[]);
+  const two=followUpTasks({id:'k',title:'親子活動',followUps:[{title:'甲',who:'director',either:true},{title:'乙',who:'director',either:true,needSend:true}]},'2027-01','2026-11-20');
+  assert.deepEqual(two.map(x=>x.id),['fu__k__2027-01','fu__k__2027-01__1']); assert.equal(two[0].needSend,false); assert.equal(two[1].needSend,true); assert.equal(nextOcc(two[0],'2026-11-21',()=>({doneAt:1})),null);
 });
 test('學期：2–7 月、8–1 月', () => {
   for (const [d,k] of [['2026-11-03','2027-01'],['2027-01-31','2027-01'],['2027-02-01','2027-07'],['2027-07-31','2027-07'],['2027-08-01','2028-01']]) assert.equal(termKey(d),k);
@@ -64,3 +66,4 @@ test('社區宣導上學期做完兩次，下學期不再提醒', () => {
   assert.equal(nextOcc(C,'2027-06-01',g).key,'2028-01');
   delete r['c__2027-07']; assert.equal(nextOcc(C,'2027-06-01',g).due,'2027-07-31');
 });
+test('滿意度調查：學期對應 6、12 月底', () => { assert.equal(termOf('2027-01').halfKey,'2026-12'); assert.equal(termOf('2027-07').halfKey,'2027-06'); assert.equal(keyEnd('2027-06'),'2027-06-30'); assert.equal(keyEnd('2026-12'),'2026-12-31'); });
