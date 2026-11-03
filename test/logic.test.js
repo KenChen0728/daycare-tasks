@@ -1,5 +1,5 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays, monthOccs, addMonth, followUpTasks, keyEnd, termKey, termOf, shiftTerm, pendingLabel } from '../logic.js';
+import { nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays, monthOccs, addMonth, followUpTasks, followUpIds, planTasks, keyEnd, termKey, termOf, shiftTerm, pendingLabel } from '../logic.js';
 const none = () => undefined;
 const M = { id:'m', who:'admin', freq:'monthly', months:[1,2,3,4,5,6,7,8,9,10,11,12], day:31, lead:7, from:'2026-11-01', title:'月', gov:false };
 const S = { ...M, id:'s', needSend:true, gov:true };
@@ -67,3 +67,23 @@ test('社區宣導上學期做完兩次，下學期不再提醒', () => {
   delete r['c__2027-07']; assert.equal(nextOcc(C,'2027-06-01',g).due,'2027-07-31');
 });
 test('滿意度調查：學期對應 6、12 月底', () => { assert.equal(termOf('2027-01').halfKey,'2026-12'); assert.equal(termOf('2027-07').halfKey,'2027-06'); assert.equal(keyEnd('2027-06'),'2027-06-30'); assert.equal(keyEnd('2026-12'),'2026-12-31'); });
+test('自辦研習：事項在對的日子出現', () => {
+  const p={id:'p',name:'',deadline:'2027-03-01',start:'2027-04-20',end:'2027-04-21',time:'09:00–12:00'};
+  const [plan,gov,rpt]=planTasks(p,'2027-02-01');
+  assert.equal(plan.date,'2027-03-01'); assert.equal(plan.either,true); assert.equal(gov.either,undefined); assert.equal(gov.who,'director'); assert.equal(gov.gov,true);
+  assert.equal(gov.date,'2027-04-19');
+  assert.equal(bucket(gov,nextOcc(gov,'2027-04-05',none),'2027-04-05'),'later');
+  assert.equal(bucket(gov,nextOcc(gov,'2027-04-06',none),'2027-04-06'),'soon');
+  assert.equal(bucket(rpt,nextOcc(rpt,'2027-04-21',none),'2027-04-21'),'later');
+  assert.equal(bucket(rpt,nextOcc(rpt,'2027-04-22',none),'2027-04-22'),'soon'); assert.equal(rpt.date,'2027-05-22');
+  const sent=on=>on==='sent';
+  assert.deepEqual(followUpTasks(gov,'once','2027-04-08',on=>on!=='sent'),[]);
+  const [s]=followUpTasks(gov,'once','2027-04-08',sent); assert.equal(s.title,'簽到表製作'); assert.equal(s.date,'2027-04-19'); assert.equal(s.either,true); assert.equal(s.plan,'p');
+  assert.equal(followUpIds(gov,'once',sent)[0],s.id);
+  assert.equal(pendingLabel(gov),'待發文');
+});
+test('自辦研習：課程很近時從今天開始', () => {
+  const [,gov]=planTasks({id:'p',deadline:'2027-04-01',start:'2027-04-10',end:'2027-04-10'},'2027-04-05');
+  assert.equal(bucket(gov,nextOcc(gov,'2027-04-05',none),'2027-04-05'),'soon');
+  const [,g2]=planTasks({id:'p',deadline:'2027-04-01',start:'2027-04-05',end:'2027-04-05'},'2027-04-05'); assert.equal(g2.date,'2027-04-05');
+});

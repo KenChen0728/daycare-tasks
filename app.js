@@ -1,12 +1,12 @@
 import { firebaseConfig, APP_URL } from './firebase-config.js';
 import * as fb from './vendor/firebase.js';
-import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf, monthOccs, sendLabel, pendingLabel, eitherLabel, followUpTasks, followUpIds, termOf, termKey, shiftTerm, keyEnd } from './logic.js';
+import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf, monthOccs, sendLabel, pendingLabel, eitherLabel, followUpTasks, followUpIds, planTasks, termOf, termKey, shiftTerm, keyEnd } from './logic.js';
 import { renderHelp } from './help.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const MZ = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二'], WZ = '日一二三四五六';
-const GROUPS = ['交辦', '每日', '每週', '每月', '每季', '每半年', '每學期', '每年', '不定期'];
+const GROUPS = ['交辦', '自辦研習', '每日', '每週', '每月', '每季', '每半年', '每學期', '每年', '不定期'];
 const GMAP = { once: '交辦', daily: '每日', weekly: '每週', monthly: '每月', adhoc: '不定期' };
 const rocDate = s => { const [y, m, d] = s.split('-').map(Number); return `民國 ${y - 1911} 年 ${m} 月 ${d} 日（${WZ[dow(s)]}）`; };
 const short = s => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
@@ -76,10 +76,10 @@ function renderToday() {
     .map(d => { const t = taskOf(d.taskId) || { id: d.taskId, title: d.title, who: d.who }; return `<div class="row">${ticks(t, d.key)}<div class="main"><div class="title">${esc(d.title)}</div><div class="meta"><span class="pill p-${esc(d.who)}">${WHO[d.who] || ''}</span></div></div></div>`; });
   const open = b.over.length + b.today.length + b.week.length + b.soon.length + b.send.length;
   $('tally').innerHTML = `${b.over.length ? `<span class="bad">逾期 <b>${b.over.length}</b></span>` : ''}<span>今天 <b>${b.today.length}</b></span><span>本週 <b>${b.week.length}</b></span><span class="warn">快到期 <b>${b.soon.length}</b></span><span>待送出 <b>${b.send.length}</b></span>`;
-  return (open ? '' : '<div class="empty">目前沒有要處理的事項。</div>') + section('已完成、還沒結案', '送出或印出才算結案', r('send')) + section('已逾期', '', r('over'), 'bad') + section('今天要做', '', r('today')) + section('本週要做', '', r('week')) + section('快到期', '', r('soon')) + section('今天已處理', '再按一次可取消', fin);
+  return (open ? '' : '<div class="empty">目前沒有要處理的事項。</div>') + section('已完成、還沒結案', '第二個勾打完才算結案', r('send')) + section('已逾期', '', r('over'), 'bad') + section('今天要做', '', r('today')) + section('本週要做', '', r('week')) + section('快到期', '', r('soon')) + section('今天已處理', '再按一次可取消', fin);
 }
 function renderAll() {
-  const now = today(); let h = '';
+  const now = today(); let h = '<div class="actions start"><button class="btn primary" data-act="planNew">＋ 自辦研習計畫生成</button></div>';
   for (const g of GROUPS) {
     const rows = tasks.filter(t => show(t) && t.group === g).sort((a, b) => (a.order || 0) - (b.order || 0)).map(t => {
       const o = nextOcc(t, now, getRec);
@@ -186,15 +186,15 @@ function staleWarning() {
 function setView(v, push) { view = VIEWS.includes(v) ? v : 'today'; if (view === 'help') { helpTopic = ''; helpStep = 0; } if ($('view').querySelector('#impFile')) $('view').innerHTML = ''; if (push) location.hash = view; render(); }
 
 // 第一次完成時新增後續事項；已經有了就不動，以免蓋掉修改過的期限。
-async function addFollowUp(t, key, r, s) {
-  if (r && r.doneAt) return '';
-  const list = followUpTasks(t, key, s.date).filter(f => !taskOf(f.id)); if (!list.length) return '';
+async function addFollowUp(t, key, r, stage, s) {
+  const had = !!(r && r.doneAt), when = on => on === 'sent' ? stage === 'sent' : !had;
+  const list = followUpTasks(t, key, s.date, when).filter(f => !taskOf(f.id)); if (!list.length) return '';
   const b = fb.writeBatch(db); list.forEach(f => b.set(fb.doc(db, 'tasks', f.id), f)); await b.commit();
   return list.map(f => `「${f.title}」`).join('、') + `，${short(list[0].date)} 前完成`;
 }
 // 取消完成時，後續事項還沒動過才一起移除。
-async function dropFollowUp(t, key) {
-  const ids = followUpIds(t, key).filter(id => taskOf(id) && !getRec(id, 'once'));
+async function dropFollowUp(t, key, when) {
+  const ids = followUpIds(t, key, when).filter(id => taskOf(id) && !getRec(id, 'once'));
   await Promise.all(ids.map(id => fb.deleteDoc(fb.doc(db, 'tasks', id)))); return ids.length > 0;
 }
 const refOf = (t, key) => fb.doc(db, collectionFor(t), recordId(t.id, key));
@@ -204,9 +204,9 @@ async function act(a, id, key) {
   const ref = refOf(t, key), s = stamp(), r = getRec(id, key);
   const base = { taskId: id, key, title: t.title, who: t.who };
   try {
-    if (a === 'done') { await fb.setDoc(ref, { ...base, doneAt: s.at, doneBy: s.by, doneDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, s); toast(fu ? `已完成，已新增${fu}` : t.needSend ? `已完成，記得${sendLabel(t).slice(1)}：` + t.title : '已完成：' + t.title); }
-    if (a === 'sent') { await fb.setDoc(ref, { ...base, ...(r && r.doneAt ? {} : { doneAt: s.at, doneBy: s.by, doneDate: s.date }), sentAt: s.at, sentBy: s.by, sentDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, s); toast(fu ? `${sendLabel(t)}，已新增${fu}` : `${sendLabel(t)}，結案：` + t.title); }
-    if (a === 'undoSent') { await fb.updateDoc(ref, { sentAt: fb.deleteField(), sentBy: fb.deleteField(), sentDate: fb.deleteField() }); toast('已取消' + sendLabel(t).slice(1)); }
+    if (a === 'done') { await fb.setDoc(ref, { ...base, doneAt: s.at, doneBy: s.by, doneDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, 'done', s); toast(fu ? `已完成，已新增${fu}` : t.needSend ? `已完成，記得${sendLabel(t).slice(1)}：` + t.title : '已完成：' + t.title); }
+    if (a === 'sent') { await fb.setDoc(ref, { ...base, ...(r && r.doneAt ? {} : { doneAt: s.at, doneBy: s.by, doneDate: s.date }), sentAt: s.at, sentBy: s.by, sentDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, 'sent', s); toast(fu ? `${sendLabel(t)}，已新增${fu}` : `${sendLabel(t)}，結案：` + t.title); }
+    if (a === 'undoSent') { await fb.updateDoc(ref, { sentAt: fb.deleteField(), sentBy: fb.deleteField(), sentDate: fb.deleteField() }); await dropFollowUp(t, key, on => on === 'sent'); toast('已取消' + sendLabel(t).slice(1)); }
     if (a === 'undoDone') { await fb.deleteDoc(ref); toast(await dropFollowUp(t, key) ? '已取消完成，自動新增的事項也移除了' : '已取消完成'); }
   } catch (e) { console.error(e); toast('沒有存到，請再按一次。'); }
 }
@@ -218,7 +218,7 @@ function syncForm() {
   $('wSend').hidden = f === 'daily' || f === 'adhoc';
 }
 function openForm(t) {
-  editing = t || null; delArmed = false; $('del').textContent = '刪除'; $('del').hidden = !t;
+  editing = t || null; delArmed = false; $('del').textContent = '刪除'; $('del').hidden = !t; $('toPlan').hidden = !!t;
   $('dlgTitle').textContent = t ? '修改事項' : '新增事項'; $('wSendText').textContent = `要${sendLabel(t || {}).slice(1)}，${sendLabel(t || {}).slice(1)}才算結案`;
   $('fTitle').value = t ? t.title : ''; $('fWho').value = t ? t.who : (who === 'director' ? 'director' : 'admin');
   $('fFreq').value = t ? t.freq : 'once'; $('fDate').value = t && t.date || (view === 'cal' && calSel) || today();
@@ -233,7 +233,7 @@ async function save() {
   if (freq === 'months' && !months.length) return toast('請至少選一個月份。');
   const old = editing, title = $('fTitle').value.trim(); if (!title) return;
   const group = freq === 'months' ? (old && old.freq === 'months' ? old.group : (months.length === 1 ? '每年' : '每季')) : GMAP[freq];
-  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
+  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
   const data = { ...keep, who: $('fWho').value, group, freq, title, months: freq === 'monthly' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : freq === 'months' ? months : [],
     day: +$('fDay').value || 31, lead: +$('fLead').value || 0, gov: $('fGov').checked, verify: $('fVerify').checked, note: $('fNote').value.trim(),
     needSend: freq !== 'daily' && freq !== 'adhoc' && $('fSend').checked, rollover: (freq === 'monthly' || freq === 'months') && $('fRoll').checked, from: old ? old.from : today(), order: old ? old.order : Date.now() };
@@ -245,6 +245,35 @@ async function save() {
 async function remove() {
   if (!delArmed) { delArmed = true; $('del').textContent = '確定刪除？'; return; }
   try { await fb.deleteDoc(fb.doc(db, 'tasks', editing.id)); $('dlg').close(); toast('已刪除'); } catch (e) { toast('沒有刪除成功，請再試一次。'); }
+}
+
+// 自辦研習計畫：填一次產生後續事項；之後從計畫改日期或取消，還沒結案的事項會一起更新。
+let planEdit = null, planDel = false;
+function openPlan(t) {
+  planEdit = t || null; planDel = false; const p = t ? t.planData : {};
+  $('planTitle').textContent = t ? '修改自辦研習計畫' : '自辦研習計畫生成';
+  $('pName').value = p.name || ''; $('pDeadline').value = p.deadline || ''; $('pStart').value = p.start || ''; $('pEnd').value = p.end && p.end !== p.start ? p.end : ''; $('pTime').value = p.time || '';
+  $('planDel').hidden = !t; $('planDel').textContent = '取消這場研習'; $('planDlg').showModal();
+}
+const untouched = id => taskOf(id) && !getRec(id, 'once');
+const planIds = p => { const [, gov] = planTasks(p, today()); return [p.id, gov.id, p.id + '-report', ...followUpIds(gov, 'once')]; };
+async function savePlan() {
+  const start = $('pStart').value, end = $('pEnd').value || start;
+  if (end < start) return toast('結束日期不能早於課程日期。');
+  const p = { id: planEdit ? planEdit.planData.id : 'plan-' + Date.now(), name: $('pName').value.trim(), deadline: $('pDeadline').value, start, end, time: $('pTime').value.trim() };
+  const list = planTasks(p, today()), b = fb.writeBatch(db);
+  for (const t of list) if (!planEdit) b.set(fb.doc(db, 'tasks', t.id), t); else if (untouched(t.id)) { const { order, from, ...d } = t; b.set(fb.doc(db, 'tasks', t.id), d, { merge: true }); }
+  if (planEdit) {
+    const gov = list[1], sign = followUpIds(gov, 'once')[0], [f] = gov.followUps;
+    if (untouched(sign)) b.set(fb.doc(db, 'tasks', sign), { date: f.date > today() ? f.date : today(), note: f.note }, { merge: true });
+  }
+  try { await b.commit(); $('planDlg').close(); toast(planEdit ? '已更新，還沒結案的事項都改好了' : '已生成，核備縣府會在課程前兩週出現'); } catch (e) { console.error(e); toast('沒有存到，請再按一次。'); }
+}
+async function removePlan() {
+  if (!planDel) { planDel = true; $('planDel').textContent = '確定取消？'; return; }
+  const ids = planIds(planEdit.planData).filter(untouched), b = fb.writeBatch(db);
+  ids.forEach(id => b.delete(fb.doc(db, 'tasks', id)));
+  try { await b.commit(); $('planDlg').close(); toast('已取消，已完成的事項會留著'); } catch (e) { toast('沒有取消成功，請再試一次。'); }
 }
 
 function openPw() { $('pwForm').reset(); $('pwUser').value = user.email; $('pwMsg').textContent = ''; $('pwDlg').showModal(); }
@@ -353,7 +382,8 @@ document.addEventListener('click', e => {
   }
   if (a === 'kpiPrev' || a === 'kpiNext') { kpiTerm = shiftTerm(kpiTerm, a === 'kpiNext' ? 1 : -1); return render(); }
   if (a === 'kpiNow') { kpiTerm = termKey(today()); return render(); }
-  if (a === 'edit') return openForm(taskOf(b.dataset.id));
+  if (a === 'planNew') return openPlan();
+  if (a === 'edit') { const t = taskOf(b.dataset.id); return t && t.planData ? openPlan(t) : openForm(t); }
   if (a === 'logout') return fb.signOut(auth);
   if (a === 'changePw') return openPw();
   if (a === 'import') return doImport();
@@ -372,6 +402,9 @@ document.addEventListener('change', async e => {
 $('pwCancel').onclick = () => $('pwDlg').close();
 $('pwForm').addEventListener('submit', e => { e.preventDefault(); changePw(); });
 $('add').onclick = () => openForm();
+$('toPlan').onclick = () => { $('dlg').close(); openPlan(); };
+$('planCancel').onclick = () => $('planDlg').close(); $('planDel').onclick = removePlan;
+$('planForm').addEventListener('submit', e => { e.preventDefault(); savePlan(); });
 $('cancel').onclick = () => $('dlg').close();
 $('del').onclick = remove; $('fFreq').onchange = syncForm;
 $('frm').addEventListener('submit', e => { e.preventDefault(); save(); });

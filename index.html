@@ -48,6 +48,7 @@
 <div class="toast" id="toast" hidden role="status"></div>
 <dialog id="dlg"><form id="frm" method="dialog">
   <h2 id="dlgTitle">新增事項</h2>
+  <button type="button" class="btn" id="toPlan">要辦自辦研習？按這裡生成計畫</button>
   <label>要做的事<input type="text" id="fTitle" required maxlength="80"></label>
   <div class="two">
     <label>負責人<select id="fWho"><option value="admin">行政</option><option value="director">主任</option></select></label>
@@ -68,6 +69,22 @@
   <div class="actions">
     <button type="button" class="btn danger" id="del" hidden>刪除</button>
     <button type="button" class="btn" id="cancel">取消</button>
+    <button type="submit" class="btn primary">儲存</button>
+  </div>
+</form></dialog>
+<dialog id="planDlg"><form id="planForm" method="dialog">
+  <h2 id="planTitle">自辦研習計畫生成</h2>
+  <p class="hint">填好後，核備縣府會在課程前兩週出現，成果報告會在課程結束隔天出現。</p>
+  <label>研習主題（可不填）<input type="text" id="pName" maxlength="40"></label>
+  <label>計畫完成期限<input type="date" id="pDeadline" required></label>
+  <div class="two">
+    <label>課程日期<input type="date" id="pStart" required></label>
+    <label>結束日期（一天可不填）<input type="date" id="pEnd"></label>
+  </div>
+  <label>課程時間<input type="text" id="pTime" maxlength="30" placeholder="例如 09:00–12:00"></label>
+  <div class="actions">
+    <button type="button" class="btn danger" id="planDel" hidden>取消這場研習</button>
+    <button type="button" class="btn" id="planCancel">關閉</button>
     <button type="submit" class="btn primary">儲存</button>
   </div>
 </form></dialog>

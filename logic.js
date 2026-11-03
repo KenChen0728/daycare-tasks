@@ -32,12 +32,30 @@ export function addMonth(s) {
 
 /* 完成時自動新增的事項。編號固定，同一期不會重複新增。 */
 const followUpsOf = t => t.followUps || (t.followUp ? [t.followUp] : []);
-export const followUpIds = (t, key) => followUpsOf(t).map((f, i) => 'fu__' + t.id + '__' + key + (i ? '__' + i : ''));
-export function followUpTasks(t, key, doneDate) {
+// when 用來挑選：on='sent' 是按第二個勾才新增，其他是按完成就新增。
+export const followUpIds = (t, key, when = () => true) => followUpsOf(t).map((f, i) => [f, 'fu__' + t.id + '__' + key + (i ? '__' + i : '')]).filter(([f]) => when(f.on)).map(x => x[1]);
+export function followUpTasks(t, key, doneDate, when = () => true) {
   const ids = followUpIds(t, key);
-  return followUpsOf(t).map((f, i) => ({ id: ids[i], who: f.who, group: '交辦', freq: 'once', title: f.title, months: [], day: 31, lead: f.lead || 0, gov: false, verify: false,
-    note: `${+doneDate.slice(5, 7)} 月${t.title}完成後自動新增`, needSend: !!f.needSend, rollover: false, from: doneDate, order: Date.now() + i, date: addMonth(doneDate),
-    either: !!f.either, ...(f.sendLabel ? { sendLabel: f.sendLabel } : {}) }));
+  return followUpsOf(t).map((f, i) => ({ id: ids[i], who: f.who, group: f.group || '交辦', freq: 'once', title: f.title, months: [], day: 31, lead: f.lead || 0, gov: false, verify: false,
+    note: f.note ?? `${+doneDate.slice(5, 7)} 月${t.title}完成後自動新增`, needSend: !!f.needSend, rollover: false, from: doneDate, order: Date.now() + i,
+    date: f.date ? (f.date > doneDate ? f.date : doneDate) : addMonth(doneDate),
+    either: !!f.either, ...(f.sendLabel ? { sendLabel: f.sendLabel } : {}), ...(f.plan ? { plan: f.plan } : {}), _on: f.on })).filter(f => when(f._on)).map(({ _on, ...f }) => f);
+}
+
+/* 自辦研習：填一次，產生計畫、核備縣府、成果報告。後兩件事先建立，用提前天數控制出現的日子。 */
+const later = (a, b) => a > b ? a : b;
+export const planNote = p => [p.name, `課程 ${+p.start.slice(5, 7)}/${+p.start.slice(8, 10)}${p.end > p.start ? `–${+p.end.slice(5, 7)}/${+p.end.slice(8, 10)}` : ''}`, p.time].filter(Boolean).join(' ').slice(0, 120);
+export function planTasks(p, today) {
+  const note = planNote(p), any = { who: 'director', either: true }, group = '自辦研習';
+  const base = { group, freq: 'once', months: [], day: 31, gov: false, verify: false, note, needSend: false, rollover: false, from: today, plan: p.id, order: Date.parse(p.start) / 1e5 };
+  const govDue = later(addDays(p.start, -1), today), govShow = later(addDays(p.start, -14), today);
+  const rptShow = addDays(p.end, 1), rptDue = addMonth(rptShow);
+  return [
+    { ...base, ...any, id: p.id, title: '自辦研習計畫', date: p.deadline, lead: 31, planData: p },
+    { ...base, who: 'director', id: p.id + '-gov', title: '自辦研習課程核備縣府', gov: true, needSend: true, sendLabel: '已發文', date: govDue, lead: diff(govDue, govShow),
+      followUps: [{ ...any, title: '簽到表製作', on: 'sent', date: govDue, lead: 31, group, plan: p.id, note }] },
+    { ...base, ...any, id: p.id + '-report', title: '自辦研習課程成果報告', needSend: true, sendLabel: '已印出', date: rptDue, lead: diff(rptDue, rptShow) }
+  ];
 }
 
 /* 學期 KPI：下學期 2–7 月、上學期 8–1 月。key 是學期最後一個月，例如 2027-01。 */
