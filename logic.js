@@ -18,6 +18,39 @@ export const isClosed = (t, r) => !!r && (t.needSend ? !!r.sentAt : !!r.doneAt);
 export const stageOf = (t, r) => (r && r.doneAt && t.needSend && !r.sentAt) ? 'send' : 'todo';
 const openOcc = (t, key, due, get) => { const r = get(t.id, key); return isClosed(t, r) ? null : { key, due, stage: stageOf(t, r) }; };
 
+// 第二個勾的名稱：多數是「已送出」，報告書這類是「已印出」。
+export const sendLabel = t => t.sendLabel || '已送出';
+export const pendingLabel = t => '待' + sendLabel(t).slice(1);
+export const eitherLabel = '主任或行政皆可';
+
+/* 加一個月，遇到月份天數不同時取該月最後一天。 */
+export function addMonth(s) {
+  let y = +s.slice(0, 4), m = +s.slice(5, 7) + 1; const d = +s.slice(8, 10);
+  if (m > 12) { m = 1; y++; }
+  return y + '-' + pad(m) + '-' + pad(Math.min(d, lastDay(y, m)));
+}
+
+/* 完成時自動新增的事項。編號固定，同一期不會重複新增。 */
+export const followUpId = (t, key) => 'fu__' + t.id + '__' + key;
+export function followUpTask(t, key, doneDate) {
+  const f = t.followUp; if (!f) return null;
+  const id = followUpId(t, key);
+  return { id, who: f.who, group: '交辦', freq: 'once', title: f.title, months: [], day: 31, lead: f.lead || 0, gov: false, verify: false,
+    note: `${+key.slice(5, 7)} 月${t.title}完成後自動新增`, needSend: !!f.needSend, rollover: false, from: doneDate, order: Date.now(), date: addMonth(doneDate),
+    either: !!f.either, ...(f.sendLabel ? { sendLabel: f.sendLabel } : {}) };
+}
+
+/* 學期 KPI：下學期 2–7 月、上學期 8–1 月。key 是學期最後一個月，例如 2027-01。 */
+export function termOf(key) {
+  const y = +key.slice(0, 4), up = key.endsWith('-01'), ay = y - 1 - 1911;
+  return { key, up, ay, name: `${ay} 學年度${up ? '上' : '下'}學期`, range: up ? '8–1 月' : '2–7 月', end: key + '-31', yearKeys: [y + '-01', y + '-07'] };
+}
+export function termKey(today) {
+  const y = +today.slice(0, 4), m = +today.slice(5, 7);
+  return m === 1 ? y + '-01' : m <= 7 ? y + '-07' : (y + 1) + '-01';
+}
+export const shiftTerm = (key, n) => { let y = +key.slice(0, 4), up = key.endsWith('-01'); for (let i = 0; i < Math.abs(n); i++) { if (n > 0) { if (up) up = false; else { up = true; y++; } } else { if (up) { up = false; y--; } else up = true; } } return y + (up ? '-01' : '-07'); };
+
 // 遇假日順延：週末與固定日期的國定假日。春節、補假每年不同，不在此列。
 const FIXED_HOLIDAYS = ['01-01', '02-28', '04-04', '04-05', '05-01', '09-28', '10-10', '10-25', '12-25'];
 export const isHoliday = s => dow(s) === 0 || dow(s) === 6 || FIXED_HOLIDAYS.includes(s.slice(5));
@@ -111,7 +144,7 @@ const WZ = '日一二三四五六';
 const md = s => `${+s.slice(5, 7)}/${+s.slice(8, 10)}（${WZ[dow(s)]}）`;
 function item(x, today) {
   const d = diff(x.o.due, today), when = d < 0 ? `逾期 ${-d} 天` : d === 0 ? '今天到期' : `剩 ${d} 天`;
-  const tags = [x.t.gov ? '交縣府' : '', x.o.stage === 'send' ? '已完成，待送出' : ''].filter(Boolean);
+  const tags = [x.t.gov ? '交縣府' : '', x.t.either ? eitherLabel : '', x.o.stage === 'send' ? '已完成，' + pendingLabel(x.t) : ''].filter(Boolean);
   return `・${x.t.title}\n　${md(x.o.due)} ${when}${tags.length ? '｜' + tags.join('｜') : ''}`;
 }
 

@@ -1,6 +1,6 @@
 import { firebaseConfig, APP_URL } from './firebase-config.js';
 import * as fb from './vendor/firebase.js';
-import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf, monthOccs } from './logic.js';
+import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf, monthOccs, sendLabel, pendingLabel, eitherLabel, followUpTask, followUpId, termOf, termKey, shiftTerm } from './logic.js';
 import { renderHelp } from './help.js';
 
 const $ = id => document.getElementById(id);
@@ -30,19 +30,20 @@ async function nameOf(email) {
 }
 let myName = '';
 let db, auth, user, tasks = [], recs = new Map(), meta = null, ready = { tasks: false, records: false, quick: false };
-const VIEWS = ['today', 'all', 'cal', 'log', 'set', 'help'];
+const VIEWS = ['today', 'all', 'cal', 'kpi', 'log', 'set', 'help'];
 const CAL_BARS = 3;   // 日曆每格最多顯示幾件，其餘寫「還有 N 件」
-let helpTopic = '', helpStep = 0, calMonth = '', calSel = '';
+let helpTopic = '', helpStep = 0, calMonth = '', calSel = '', kpiTerm = '';
 let view = 'today', who = 'all', editing = null, delArmed = false, unsub = [], importData = null;
 try { who = localStorage.getItem('who') || 'all'; } catch (e) {}
 
 function toast(m) { const e = $('toast'); e.textContent = m; e.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => e.hidden = true, 2600); }
 function setStatus(m) { const e = $('status'); e.textContent = m || ''; e.hidden = !m; }
-const show = t => who === 'all' || t.who === who;
+const show = t => who === 'all' || t.who === who || !!t.either;
+const showRec = d => who === 'all' || d.who === who || !!(taskOf(d.taskId) || {}).either;
 const getRec = (id, key) => recs.get(recordId(id, key));
 const taskOf = id => tasks.find(t => t.id === id);
 
-function pills(t) { return `<span class="pill p-${t.who}">${WHO[t.who]}</span>${t.gov ? '<span class="pill p-gov">交縣府</span>' : ''}${t.verify ? '<span class="pill p-check">日期待確認</span>' : ''}`; }
+function pills(t) { return `${t.either ? `<span class="pill p-either">${eitherLabel}</span>` : `<span class="pill p-${t.who}">${WHO[t.who]}</span>`}${t.gov ? '<span class="pill p-gov">交縣府</span>' : ''}${t.verify ? '<span class="pill p-check">日期待確認</span>' : ''}`; }
 function whenText(t, o, b, now) {
   const d = diff(o.due, now);
   if (b === 'over') return `<span class="when-bad">已逾期 ${-d} 天（${short(o.due)}）</span>`;
@@ -55,7 +56,7 @@ function ticks(t, key) {
   const r = getRec(t.id, key), a = `data-id="${esc(t.id)}" data-key="${esc(key)}"`;
   const done = !!(r && r.doneAt), sent = !!(r && r.sentAt);
   let h = `<button class="tick" role="checkbox" aria-checked="${done}" aria-label="完成：${esc(t.title)}" data-act="${done ? 'undoDone' : 'done'}" ${a} ${sent ? 'disabled' : ''}><i>✓</i>完成</button>`;
-  if (t.needSend) h += `<button class="tick" role="checkbox" aria-checked="${sent}" aria-label="已送出：${esc(t.title)}" data-act="${sent ? 'undoSent' : 'sent'}" ${a}><i>✓</i>已送出</button>`;
+  if (t.needSend) h += `<button class="tick" role="checkbox" aria-checked="${sent}" aria-label="${sendLabel(t)}：${esc(t.title)}" data-act="${sent ? 'undoSent' : 'sent'}" ${a}><i>✓</i>${sendLabel(t)}</button>`;
   return `<div class="ticks">${h}</div>`;
 }
 const row = (t, o, b, now) => `<div class="row${b === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(t.title)}</div><div class="meta">${pills(t)}${whenText(t, o, b, now)}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`;
@@ -71,11 +72,11 @@ function renderToday() {
   }
   for (const k in b) b[k].sort((x, y) => x.o.due.localeCompare(y.o.due) || (+!!y.t.gov - +!!x.t.gov) || (x.t.order || 0) - (y.t.order || 0));
   const r = k => b[k].map(x => row(x.t, x.o, x.k, now));
-  const fin = [...recs.values()].filter(d => (d.doneDate === now || d.sentDate === now) && (who === 'all' || d.who === who)).filter(d => { const t = taskOf(d.taskId); return !t || stageOf(t, d) !== 'send'; })
+  const fin = [...recs.values()].filter(d => (d.doneDate === now || d.sentDate === now) && showRec(d)).filter(d => { const t = taskOf(d.taskId); return !t || stageOf(t, d) !== 'send'; })
     .map(d => { const t = taskOf(d.taskId) || { id: d.taskId, title: d.title, who: d.who }; return `<div class="row">${ticks(t, d.key)}<div class="main"><div class="title">${esc(d.title)}</div><div class="meta"><span class="pill p-${esc(d.who)}">${WHO[d.who] || ''}</span></div></div></div>`; });
   const open = b.over.length + b.today.length + b.week.length + b.soon.length + b.send.length;
   $('tally').innerHTML = `${b.over.length ? `<span class="bad">逾期 <b>${b.over.length}</b></span>` : ''}<span>今天 <b>${b.today.length}</b></span><span>本週 <b>${b.week.length}</b></span><span class="warn">快到期 <b>${b.soon.length}</b></span><span>待送出 <b>${b.send.length}</b></span>`;
-  return (open ? '' : '<div class="empty">目前沒有要處理的事項。</div>') + section('已完成、待送出', '送出才算結案', r('send')) + section('已逾期', '', r('over'), 'bad') + section('今天要做', '', r('today')) + section('本週要做', '', r('week')) + section('快到期', '', r('soon')) + section('今天已處理', '再按一次可取消', fin);
+  return (open ? '' : '<div class="empty">目前沒有要處理的事項。</div>') + section('已完成、還沒結案', '送出或印出才算結案', r('send')) + section('已逾期', '', r('over'), 'bad') + section('今天要做', '', r('today')) + section('本週要做', '', r('week')) + section('快到期', '', r('soon')) + section('今天已處理', '再按一次可取消', fin);
 }
 function renderAll() {
   const now = today(); let h = '';
@@ -84,19 +85,19 @@ function renderAll() {
       const o = nextOcc(t, now, getRec);
       const last = t.freq === 'adhoc' ? [...recs.values()].filter(d => d.taskId === t.id).sort((a, b) => b.doneDate.localeCompare(a.doneDate))[0] : null;
       const next = t.freq === 'adhoc' ? (last ? `上次 ${short(last.doneDate)}` : '') : o ? (t.freq === 'daily' || t.freq === 'weekly' ? '' : `下次 ${short(o.due)}`) : '本期已結案';
-      return `<div class="row"><div class="main"><div class="title">${esc(t.title)}</div><div class="meta">${pills(t)}<span>${esc(ruleText(t))}</span>${t.needSend ? '<span>要送出</span>' : ''}${next ? `<span>${next}</span>` : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div>${t.freq === 'adhoc' ? `<button class="log" data-act="done" data-id="${esc(t.id)}" data-key="${now}">今天做了</button>` : ''}<button class="edit" data-act="edit" data-id="${esc(t.id)}">修改</button></div>`;
+      return `<div class="row"><div class="main"><div class="title">${esc(t.title)}</div><div class="meta">${pills(t)}<span>${esc(ruleText(t))}</span>${t.needSend ? '<span>要${esc(sendLabel(t).slice(1))}</span>' : ''}${next ? `<span>${next}</span>` : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div>${t.freq === 'adhoc' ? `<button class="log" data-act="done" data-id="${esc(t.id)}" data-key="${now}">今天做了</button>` : ''}<button class="edit" data-act="edit" data-id="${esc(t.id)}">修改</button></div>`;
     });
     h += section(g, '', rows);
   }
   return h || '<div class="empty">還沒有事項。</div>';
 }
 function renderLog() {
-  const list = [...recs.values()].filter(d => who === 'all' || d.who === who);
+  const list = [...recs.values()].filter(showRec);
   if (!list.length) return '<div class="empty">打勾的事項會記在這裡，方便日後查證。</div>';
   const by = {}; list.forEach(d => (by[d.doneDate || d.sentDate] ||= []).push(d));
   return Object.keys(by).sort().reverse().slice(0, 60).map(k => section(rocDate(k), '', by[k].map(d => {
     const t = taskOf(d.taskId) || { id: d.taskId, title: d.title, who: d.who };
-    return `<div class="row">${ticks(t, d.key)}<div class="main"><div class="title">${esc(d.title)}</div><div class="meta"><span class="pill p-${esc(d.who)}">${WHO[d.who] || ''}</span>${d.doneAt ? `<span>${esc(d.doneBy)} 完成</span>` : ''}${d.sentAt ? `<span>${esc(d.sentBy)} ${short(d.sentDate)} 送出</span>` : ''}</div></div></div>`;
+    return `<div class="row">${ticks(t, d.key)}<div class="main"><div class="title">${esc(d.title)}</div><div class="meta"><span class="pill p-${esc(d.who)}">${WHO[d.who] || ''}</span>${d.doneAt ? `<span>${esc(d.doneBy)} 完成</span>` : ''}${d.sentAt ? `<span>${esc(d.sentBy)} ${short(d.sentDate)} ${esc(sendLabel(t).slice(1))}</span>` : ''}</div></div></div>`;
   }))).join('');
 }
 function calItems(ym, now) {
@@ -120,17 +121,40 @@ function renderCal() {
     const ds = `${calMonth}-${String(d).padStart(2, '0')}`, l = by[ds] || [], w = dow(ds);
     const rank = { over: 0, open: 1, done: 2 }, over = l.some(x => x.state === 'over');
     l.sort((a, b) => rank[a.state] - rank[b.state] || (+!!b.t.gov - +!!a.t.gov) || (a.t.order || 0) - (b.t.order || 0));
-    const bars = l.slice(0, CAL_BARS).map(x => `<span class="ev ${x.state === 'open' ? 'e-' + x.t.who : 'e-' + x.state}">${esc(x.t.title)}</span>`).join('') + (l.length > CAL_BARS ? `<span class="evmore">還有 ${l.length - CAL_BARS} 件</span>` : '');
+    const bars = l.slice(0, CAL_BARS).map(x => `<span class="ev ${x.state === 'open' ? 'e-' + (x.t.either ? 'either' : x.t.who) : 'e-' + x.state}">${esc(x.t.title)}</span>`).join('') + (l.length > CAL_BARS ? `<span class="evmore">還有 ${l.length - CAL_BARS} 件</span>` : '');
     const label = `${m} 月 ${d} 日，${l.length ? `${l.length} 件${over ? '，有逾期' : ''}` : '沒有事項'}`;
     cells += `<button class="cday${ds === now ? ' today' : ''}${w === 0 ? ' sun' : w === 6 ? ' sat' : ''}" data-act="calDay" data-id="${ds}" aria-label="${label}" aria-pressed="${ds === calSel}"><span class="dnum">${d}</span>${bars}</button>`;
   }
   const sel = calSel.slice(0, 7) === calMonth ? calSel : '', list = (by[sel] || []).sort((a, b) => (+!!b.t.gov - +!!a.t.gov) || (a.t.order || 0) - (b.t.order || 0));
-  const rows = list.map(({ t, o, state }) => `<div class="row${state === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(t.title)}</div><div class="meta">${pills(t)}${state === 'over' ? `<span class="when-bad">已逾期 ${diff(now, o.due)} 天</span>` : ''}${o.stage === 'send' && !o.closed ? '<span class="when-warn">待送出</span>' : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`);
+  const rows = list.map(({ t, o, state }) => `<div class="row${state === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(t.title)}</div><div class="meta">${pills(t)}${state === 'over' ? `<span class="when-bad">已逾期 ${diff(now, o.due)} 天</span>` : ''}${o.stage === 'send' && !o.closed ? `<span class="when-warn">${pendingLabel(t)}</span>` : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`);
   const head = `<div class="calhead"><button class="btn" data-act="calPrev" aria-label="上個月">‹</button><h2>民國 ${y - 1911} 年 ${m} 月</h2><button class="btn" data-act="calNext" aria-label="下個月">›</button><button class="btn" data-act="calToday">回到今天</button></div>`;
   const grid = `<div class="calendar"><div class="cweek" aria-hidden="true">${[...WZ].map(z => `<span>${z}</span>`).join('')}</div><div class="cgrid">${cells}</div></div>`;
-  const legend = '<div class="meta legend"><span><i class="dot e-director"></i>主任</span><span><i class="dot e-admin"></i>行政</span><span><i class="dot e-over"></i>逾期</span><span><i class="dot e-done"></i>已結案</span></div>';
+  const legend = '<div class="meta legend"><span><i class="dot e-director"></i>主任</span><span><i class="dot e-admin"></i>行政</span><span><i class="dot e-either"></i>皆可</span><span><i class="dot e-over"></i>逾期</span><span><i class="dot e-done"></i>已結案</span></div>';
   const day = !sel ? '<div class="empty">點日期可以看當天的事項。</div>' : rows.length ? section(rocDate(sel), '', rows) : `<div class="empty">${rocDate(sel)}沒有到期的事項。</div>`;
   return head + grid + legend + `<div id="calDay">${day}</div>`;
+}
+// 學期 KPI：一頁看完這學期做到哪裡。事項本身仍是一般事項，LINE 提醒與日曆照常運作。
+function kpiRow(t, key, label, now) {
+  const r = getRec(t.id, key), done = !!(r && r.doneAt), due = key + '-31', late = !done && due < now;
+  const state = done ? `<span>${esc(r.doneBy || '')} ${short(r.doneDate)} 完成</span>` : late ? `<span class="when-bad">已逾期 ${diff(now, due)} 天</span>` : `<span>${short(due)} 前完成</span>`;
+  return `<div class="row${late ? ' over' : ''}">${ticks(t, key)}<div class="main"><div class="title">${esc(label)}</div><div class="meta">${pills(t)}${state}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`;
+}
+const kpiBar = (n, all) => `<div class="kpibar" role="img" aria-label="完成 ${n} 件，共 ${all} 件"><i style="width:${all ? n / all * 100 : 0}%"></i></div>`;
+function renderKpi() {
+  const now = today(); kpiTerm ||= termKey(now);
+  const T = termOf(kpiTerm), left = diff(T.end, now);
+  const term = tasks.filter(t => t.kpi === 'term').sort((a, b) => (a.order || 0) - (b.order || 0));
+  const year = tasks.filter(t => t.kpi === 'year').sort((a, b) => (a.order || 0) - (b.order || 0));
+  const isDone = (t, k) => { const r = getRec(t.id, k); return !!(r && r.doneAt); };
+  const n = term.filter(t => isDone(t, T.key)).length;
+  const head = `<div class="calhead"><button class="btn" data-act="kpiPrev" aria-label="上一學期">‹</button><h2>${T.name}</h2><button class="btn" data-act="kpiNext" aria-label="下一學期">›</button><button class="btn" data-act="kpiNow">本學期</button></div>`;
+  const a = `<section><h2>每學期一次<small>${T.range}，完成 ${n} / ${term.length}${left >= 0 ? `，還有 ${left} 天` : ''}</small></h2>${kpiBar(n, term.length)}<div class="list">${term.map(t => kpiRow(t, T.key, t.title, now)).join('')}</div></section>`;
+  const b = year.map(t => {
+    const c = T.yearKeys.filter(k => isDone(t, k)).length;
+    const rows = T.yearKeys.map((k, i) => kpiRow(t, k, `${t.title} 第 ${i + 1} 次`, now));
+    return `<section><h2>一學年兩次<small>${T.ay} 學年度，完成 ${c} / 2</small></h2>${kpiBar(c, 2)}<div class="list">${rows.join('')}</div><p class="hint">通常上、下學期各一次。上學期就做完兩次時，兩個都打勾，下學期就不會再提醒。</p></section>`;
+  }).join('');
+  return head + (term.length || year.length ? a + b : '<div class="empty">KPI 事項設定中，請稍後再開一次。</div>');
 }
 function renderSet() {
   const m = meta ? `${esc(meta.date)}：${esc(meta.sent)}` : '還沒有紀錄';
@@ -143,12 +167,12 @@ function render() {
   $('date').textContent = rocDate(today());
   document.querySelectorAll('.tab').forEach(b => b.dataset.view === view ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
   document.querySelectorAll('.chip').forEach(b => b.setAttribute('aria-pressed', b.dataset.who === who));
-  document.querySelector('.people').hidden = view === 'set' || view === 'help';
+  document.querySelector('.people').hidden = view === 'set' || view === 'help' || view === 'kpi';
   $('add').hidden = view === 'help';
   if (!ready.tasks || !ready.records || !ready.quick) return;
   const a = renderToday();
   if (view === 'set' && $('impFile')) return;   // 設定頁正在選檔時不重畫
-  $('view').innerHTML = view === 'today' ? a : view === 'all' ? renderAll() : view === 'cal' ? renderCal() : view === 'log' ? renderLog() : view === 'help' ? renderHelp(helpTopic, helpStep) : renderSet();
+  $('view').innerHTML = view === 'today' ? a : view === 'all' ? renderAll() : view === 'cal' ? renderCal() : view === 'kpi' ? renderKpi() : view === 'log' ? renderLog() : view === 'help' ? renderHelp(helpTopic, helpStep) : renderSet();
   staleWarning();
 }
 function staleWarning() {
@@ -159,6 +183,18 @@ function staleWarning() {
 }
 function setView(v, push) { view = VIEWS.includes(v) ? v : 'today'; if (view === 'help') { helpTopic = ''; helpStep = 0; } if ($('view').querySelector('#impFile')) $('view').innerHTML = ''; if (push) location.hash = view; render(); }
 
+// 第一次完成時新增後續事項；已經有了就不動，以免蓋掉修改過的期限。
+async function addFollowUp(t, key, r, s) {
+  if (!t.followUp || (r && r.doneAt)) return null;
+  const f = followUpTask(t, key, s.date); if (taskOf(f.id)) return null;
+  await fb.setDoc(fb.doc(db, 'tasks', f.id), f); return f;
+}
+// 取消完成時，後續事項還沒動過才一起移除。
+async function dropFollowUp(t, key) {
+  if (!t.followUp) return false;
+  const id = followUpId(t, key); if (!taskOf(id) || getRec(id, 'once')) return false;
+  await fb.deleteDoc(fb.doc(db, 'tasks', id)); return true;
+}
 const refOf = (t, key) => fb.doc(db, collectionFor(t), recordId(t.id, key));
 const stamp = () => ({ by: myName, at: new Date().toISOString(), date: today() });
 async function act(a, id, key) {
@@ -166,10 +202,10 @@ async function act(a, id, key) {
   const ref = refOf(t, key), s = stamp(), r = getRec(id, key);
   const base = { taskId: id, key, title: t.title, who: t.who };
   try {
-    if (a === 'done') { await fb.setDoc(ref, { ...base, doneAt: s.at, doneBy: s.by, doneDate: s.date }, { merge: true }); toast(t.needSend ? '已完成，記得送出：' + t.title : '已完成：' + t.title); }
-    if (a === 'sent') { await fb.setDoc(ref, { ...base, ...(r && r.doneAt ? {} : { doneAt: s.at, doneBy: s.by, doneDate: s.date }), sentAt: s.at, sentBy: s.by, sentDate: s.date }, { merge: true }); toast('已送出，結案：' + t.title); }
-    if (a === 'undoSent') { await fb.updateDoc(ref, { sentAt: fb.deleteField(), sentBy: fb.deleteField(), sentDate: fb.deleteField() }); toast('已取消送出'); }
-    if (a === 'undoDone') { await fb.deleteDoc(ref); toast('已取消完成'); }
+    if (a === 'done') { await fb.setDoc(ref, { ...base, doneAt: s.at, doneBy: s.by, doneDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, s); toast(fu ? `已完成，已新增「${fu.title}」，${short(fu.date)} 前完成` : t.needSend ? `已完成，記得${sendLabel(t).slice(1)}：` + t.title : '已完成：' + t.title); }
+    if (a === 'sent') { await fb.setDoc(ref, { ...base, ...(r && r.doneAt ? {} : { doneAt: s.at, doneBy: s.by, doneDate: s.date }), sentAt: s.at, sentBy: s.by, sentDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, s); toast(fu ? `${sendLabel(t)}，已新增「${fu.title}」` : `${sendLabel(t)}，結案：` + t.title); }
+    if (a === 'undoSent') { await fb.updateDoc(ref, { sentAt: fb.deleteField(), sentBy: fb.deleteField(), sentDate: fb.deleteField() }); toast('已取消' + sendLabel(t).slice(1)); }
+    if (a === 'undoDone') { await fb.deleteDoc(ref); toast(await dropFollowUp(t, key) ? '已取消完成，自動新增的事項也移除了' : '已取消完成'); }
   } catch (e) { console.error(e); toast('沒有存到，請再按一次。'); }
 }
 
@@ -181,7 +217,7 @@ function syncForm() {
 }
 function openForm(t) {
   editing = t || null; delArmed = false; $('del').textContent = '刪除'; $('del').hidden = !t;
-  $('dlgTitle').textContent = t ? '修改事項' : '新增事項';
+  $('dlgTitle').textContent = t ? '修改事項' : '新增事項'; $('wSendText').textContent = `要${sendLabel(t || {}).slice(1)}，${sendLabel(t || {}).slice(1)}才算結案`;
   $('fTitle').value = t ? t.title : ''; $('fWho').value = t ? t.who : (who === 'director' ? 'director' : 'admin');
   $('fFreq').value = t ? t.freq : 'once'; $('fDate').value = t && t.date || (view === 'cal' && calSel) || today();
   $('fDay').value = t ? (t.day || 31) : 31; $('fLead').value = t ? (t.lead || 0) : 7; $('fWeekday').value = String(t && t.weekday || 5);
@@ -195,7 +231,8 @@ async function save() {
   if (freq === 'months' && !months.length) return toast('請至少選一個月份。');
   const old = editing, title = $('fTitle').value.trim(); if (!title) return;
   const group = freq === 'months' ? (old && old.freq === 'months' ? old.group : (months.length === 1 ? '每年' : '每季')) : GMAP[freq];
-  const data = { who: $('fWho').value, group, freq, title, months: freq === 'monthly' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : freq === 'months' ? months : [],
+  const keep = Object.fromEntries(['kpi', 'followUp', 'either', 'sendLabel'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
+  const data = { ...keep, who: $('fWho').value, group, freq, title, months: freq === 'monthly' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : freq === 'months' ? months : [],
     day: +$('fDay').value || 31, lead: +$('fLead').value || 0, gov: $('fGov').checked, verify: $('fVerify').checked, note: $('fNote').value.trim(),
     needSend: freq !== 'daily' && freq !== 'adhoc' && $('fSend').checked, rollover: (freq === 'monthly' || freq === 'months') && $('fRoll').checked, from: old ? old.from : today(), order: old ? old.order : Date.now() };
   if (freq === 'once') data.date = $('fDate').value;
@@ -240,10 +277,22 @@ async function backup() {
   const a = document.createElement('a'); a.href = url; a.download = `托嬰中心待辦備份-${today()}.json`; a.click(); URL.revokeObjectURL(url);
 }
 
+// 資料更新：只做一次。外聘督導已有 followUp 就代表做過，之後刪改 KPI 不會被加回來。
+const KPI = { kpi: 'term', group: '每學期', freq: 'months', months: [1, 7], day: 31, lead: 60, from: '2026-08-01' };
+const NEW_KPI = [['kpi-meeting', '親師座談會', 'term', 1], ['kpi-family', '親子活動', 'term', 2], ['kpi-parenting', '親職講座', 'term', 3], ['kpi-community', '社區宣導', 'year', 5]];
+async function upgradeData() {
+  const sup = tasks.find(t => t.title === '外聘督導');
+  if (!sup || sup.followUp) return;
+  const b = fb.writeBatch(db), sat = tasks.find(t => t.title === '家長滿意度調查');
+  b.set(fb.doc(db, 'tasks', sup.id), { followUp: { title: '外聘督導成果報告書', who: 'director', either: true, needSend: true, sendLabel: '已印出', lead: 31 } }, { merge: true });
+  if (sat) b.set(fb.doc(db, 'tasks', sat.id), { ...KPI, order: 4 }, { merge: true });
+  for (const [id, title, kpi, order] of NEW_KPI) b.set(fb.doc(db, 'tasks', id), { ...KPI, id, title, kpi, order, who: 'director', note: '', gov: false, verify: false, needSend: false, rollover: false });
+  try { await b.commit(); } catch (e) { console.error(e); }
+}
 function subscribe() {
   const fail = e => { console.error(e); setStatus('資料讀取失敗。若持續發生，可能是這個帳號沒有使用權限，請通知協助設定的人。'); finishBoot('app'); };
   const slow = setTimeout(() => { setStatus('資料還沒載入，請確認網路。'); finishBoot('app'); }, 10000);
-  const ok = k => { ready[k] = true; if (ready.tasks && ready.records && ready.quick) { clearTimeout(slow); setStatus(''); finishBoot('app'); } render(); };
+  const ok = k => { ready[k] = true; if (ready.tasks && ready.records && ready.quick) { clearTimeout(slow); setStatus(''); finishBoot('app'); upgradeData(); } render(); };
   const apply = (s, k) => { s.docChanges().forEach(c => c.type === 'removed' ? recs.delete(c.doc.id) : recs.set(c.doc.id, { ...c.doc.data(), id: c.doc.id })); ok(k); };
   unsub = [
     fb.onSnapshot(fb.collection(db, 'tasks'), s => { tasks = s.docs.map(d => ({ ...d.data(), id: d.id })); ok('tasks'); }, fail),
@@ -291,6 +340,8 @@ document.addEventListener('click', e => {
     if (a === 'calPrev' || a === 'calNext') { const [y, m] = calMonth.split('-').map(Number), n = new Date(Date.UTC(y, m - 1 + (a === 'calNext' ? 1 : -1), 1)).toISOString().slice(0, 7); calMonth = n; }
     return render();
   }
+  if (a === 'kpiPrev' || a === 'kpiNext') { kpiTerm = shiftTerm(kpiTerm, a === 'kpiNext' ? 1 : -1); return render(); }
+  if (a === 'kpiNow') { kpiTerm = termKey(today()); return render(); }
   if (a === 'edit') return openForm(taskOf(b.dataset.id));
   if (a === 'logout') return fb.signOut(auth);
   if (a === 'changePw') return openPw();

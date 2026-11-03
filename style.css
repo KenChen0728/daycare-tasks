@@ -56,3 +56,7 @@ body:has(#login:not([hidden])) #boot,body:has(#app:not([hidden])) #boot{display:
 section>.bar{width:100%;height:8px}
 .helpstep h3{margin:0;font-size:18px}.helpstep p{margin:0}.demo .row{min-height:0}.tick[data-on] i{background:var(--accent);color:var(--accent-ink)}
 .legend span{display:inline-flex;align-items:center;gap:4px}.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+
+.p-either{background:var(--warn-soft);color:var(--warn)}.e-either{background:var(--warn);color:var(--surface)}
+.kpibar{height:10px;background:var(--accent-soft);border-radius:999px;overflow:hidden}.kpibar i{display:block;height:100%;background:var(--accent);border-radius:999px}
+@media (max-width:480px){nav{flex-wrap:nowrap;justify-content:space-between}.tab{padding:8px 2px;white-space:nowrap}}
