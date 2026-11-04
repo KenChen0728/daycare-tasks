@@ -28,7 +28,11 @@ export const eitherLabel = '主任或行政皆可';
 
 /* 每期日期不固定的事項：選核銷日期，截止日是前一天。還沒選時先用月底當期限。 */
 export const needsPick = (t, key) => !!t.pick && !(t.picks || {})[key];
-const pickDue = (t, key, due) => t.pick && (t.picks || {})[key] ? addDays(t.picks[key], -1) : due;
+export const pickDeadline = d => prevWork(addDays(d, -1));
+// 期限的最後調整：核銷日前一天；提前的事項遇假日移到上一個工作天。
+const finalDue = (t, key, due) => t.pick ? ((t.picks || {})[key] ? pickDeadline(t.picks[key]) : due) : t.rollBack ? prevWork(due) : due;
+// 每月先做好下個月的事項，名稱寫明是哪個月的，例如「12月薪資製作」。
+export const titleOf = (t, key) => t.monthTitle && /^\d{4}-\d{2}$/.test(key || '') ? `${+key.slice(5)}月${t.title}` : t.title;
 export const pickDays = key => Array.from({ length: lastDay(+key.slice(0, 4), +key.slice(5, 7)) }, (_, i) => key + '-' + pad(i + 1));
 
 /* 加一個月，遇到月份天數不同時取該月最後一天。 */
@@ -84,6 +88,14 @@ export const shiftTerm = (key, n) => { let y = +key.slice(0, 4), up = key.endsWi
 const FIXED_HOLIDAYS = ['01-01', '02-28', '04-04', '04-05', '05-01', '09-28', '10-10', '10-25', '12-25'];
 export const isHoliday = s => dow(s) === 0 || dow(s) === 6 || FIXED_HOLIDAYS.includes(s.slice(5));
 export function rollDue(s) { while (isHoliday(s)) s = addDays(s, 1); return s; }
+export function prevWork(s) { while (isHoliday(s)) s = addDays(s, -1); return s; }
+/* 每週事項的到期日。有 shift 的事項，遇假日改到同一週 shift 列出的星期。 */
+export function weekDue(t, mon) {
+  const on = w => addDays(mon, w - 1), due = on(t.weekday || 5);
+  if (!t.shift || !isHoliday(due)) return due;
+  const w = t.shift.find(x => !isHoliday(on(x)));
+  return w ? on(w) : due;
+}
 
 /* 最早一期還沒結案的事項；沒有就回傳 null。 */
 export function nextOcc(t, today, get) {
@@ -94,7 +106,7 @@ export function nextOcc(t, today, get) {
     const mon = addDays(today, -((dow(today) + 6) % 7));
     // 要送出的每週事項，前幾週沒送出不會消失（最多回看 4 週，對應保留的紀錄期間）。
     for (let i = t.needSend ? 4 : 0; i >= 0; i--) {
-      const m = addDays(mon, -7 * i), due = addDays(m, (t.weekday || 5) - 1);
+      const m = addDays(mon, -7 * i), due = weekDue(t, m);
       if (i > 0 && (!t.from || due < t.from)) continue;
       const o = openOcc(t, m, due, get);
       if (o) return o;
@@ -109,7 +121,7 @@ export function nextOcc(t, today, get) {
     if ((t.months || []).includes(m)) {
       const raw = y + '-' + pad(m) + '-' + pad(Math.min(t.day || 31, lastDay(y, m))), key = y + '-' + pad(m);
       const due = t.rollover ? rollDue(raw) : raw;
-      if (due >= start) { const o = openOcc(t, key, pickDue(t, key, due), get); if (o) return o; }
+      if (due >= start) { const o = openOcc(t, key, finalDue(t, key, due), get); if (o) return o; }
     }
     if (++m > 12) { m = 1; y++; }
   }
@@ -122,20 +134,22 @@ export function monthOccs(t, y, m, get) {
   const push = (key, due) => { if (due.slice(0, 7) === ym) { const r = get(t.id, key); out.push({ key, due, stage: stageOf(t, r), closed: isClosed(t, r) }); } };
   if (t.freq === 'once') push('once', t.date || '');
   if (t.freq === 'weekly') {
-    const wd = t.weekday || 5;
-    for (let d = 1; d <= lastDay(y, m); d++) {
-      const due = ym + '-' + pad(d);
-      if (dow(due) === wd && (!t.from || due >= t.from)) push(addDays(due, 1 - wd), due);
+    // 從上個月底那一週看起：週一在上個月、到期日在這個月的也要算。
+    for (let i = -6; i < lastDay(y, m); i++) {
+      const mon = addDays(ym + '-01', i);
+      if (dow(mon) !== 1) continue;
+      const due = weekDue(t, mon);
+      if (!t.from || due >= t.from) push(mon, due);
     }
   }
   if (t.freq === 'monthly' || t.freq === 'months') {
     // 上個月底順延過來的那一期也算在這個月。
-    // 選下個月 1 號核銷時，截止日會落在這個月。
-    for (const [yy, mm] of [m === 1 ? [y - 1, 12] : [y, m - 1], [y, m], ...(t.pick ? [m === 12 ? [y + 1, 1] : [y, m + 1]] : [])]) {
+    // 下個月那一期的期限可能提前到這個月。
+    for (const [yy, mm] of [m === 1 ? [y - 1, 12] : [y, m - 1], [y, m], ...(t.pick || t.rollBack ? [m === 12 ? [y + 1, 1] : [y, m + 1]] : [])]) {
       if (!(t.months || []).includes(mm) || needsPick(t, yy + '-' + pad(mm))) continue;
       const raw = yy + '-' + pad(mm) + '-' + pad(Math.min(t.day || 31, lastDay(yy, mm)));
       const due = t.rollover ? rollDue(raw) : raw;
-      if (!t.from || due >= t.from) push(yy + '-' + pad(mm), pickDue(t, yy + '-' + pad(mm), due));
+      if (!t.from || due >= t.from) push(yy + '-' + pad(mm), finalDue(t, yy + '-' + pad(mm), due));
     }
   }
   return out;
@@ -177,7 +191,7 @@ const md = s => `${+s.slice(5, 7)}/${+s.slice(8, 10)}（${WZ[dow(s)]}）`;
 function item(x, today) {
   const d = diff(x.o.due, today), when = d < 0 ? `逾期 ${-d} 天` : d === 0 ? '今天到期' : `剩 ${d} 天`;
   const tags = [x.t.gov ? '交縣府' : '', x.t.either ? eitherLabel : '', x.o.stage !== 'todo' ? '已完成，' + pendingLabel(x.t, x.o.stage) : ''].filter(Boolean);
-  return `・${x.t.title}\n　${needsPick(x.t, x.o.key) ? `${+x.o.key.slice(5)} 月還沒選日期` : md(x.o.due) + ' ' + when}${tags.length ? '｜' + tags.join('｜') : ''}`;
+  return `・${titleOf(x.t, x.o.key)}\n　${needsPick(x.t, x.o.key) ? `${+x.o.key.slice(5)} 月還沒選日期` : md(x.o.due) + ' ' + when}${tags.length ? '｜' + tags.join('｜') : ''}`;
 }
 
 export function formatReminder(rem, url, today) {

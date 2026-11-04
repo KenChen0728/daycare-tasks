@@ -1,6 +1,6 @@
 import { firebaseConfig, APP_URL } from './firebase-config.js';
 import * as fb from './vendor/firebase.js';
-import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf, monthOccs, sendLabel, pendingLabel, eitherLabel, followUpTasks, followUpIds, planTasks, needsPick, pickDays, termOf, termKey, shiftTerm, keyEnd } from './logic.js';
+import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf, monthOccs, sendLabel, pendingLabel, eitherLabel, followUpTasks, followUpIds, planTasks, needsPick, pickDays, pickDeadline, titleOf, termOf, termKey, shiftTerm, keyEnd } from './logic.js';
 import { renderHelp } from './help.js';
 
 const $ = id => document.getElementById(id);
@@ -12,7 +12,9 @@ const rocDate = s => { const [y, m, d] = s.split('-').map(Number); return `民�
 const short = s => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
 const today = () => taipeiToday();
 function ruleText(t) {
-  if (t.pick) return '每月兩次，選核銷日期，前一天截止';
+  if (t.pick) return '每月兩次，選核銷日期，前一個工作天截止';
+  if (t.monthTitle) return '每月 1 號前做好當月的，遇假日提前';
+  if (t.shift) return '每週' + WZ[t.weekday || 5] + '，遇假日改到同週其他天';
   if (t.freq === 'daily') return '每個上班日';
   if (t.freq === 'weekly') return '每週' + WZ[t.weekday || 5] + '前';
   if (t.freq === 'adhoc') return '有需要時';
@@ -57,10 +59,10 @@ function whenText(t, o, b, now) {
 function ticks(t, key) {
   const r = getRec(t.id, key), a = `data-id="${esc(t.id)}" data-key="${esc(key)}"`;
   const done = !!(r && r.doneAt), sent = !!(r && r.sentAt), checked = !!(r && r.reviewAt);
-  let h = `<button class="tick" role="checkbox" aria-checked="${done}" aria-label="完成：${esc(t.title)}" data-act="${done ? 'undoDone' : 'done'}" ${a} ${sent || checked ? 'disabled' : ''}><i>✓</i>完成</button>`;
+  let h = `<button class="tick" role="checkbox" aria-checked="${done}" aria-label="完成：${esc(titleOf(t, key))}" data-act="${done ? 'undoDone' : 'done'}" ${a} ${sent || checked ? 'disabled' : ''}><i>✓</i>完成</button>`;
   // 要覆核的事項一步一步出現：完成 → 主管覆核 → 已送件。
-  if (t.review && done) h += `<button class="tick" role="checkbox" aria-checked="${checked}" aria-label="主管覆核：${esc(t.title)}" data-act="${checked ? 'undoReview' : 'review'}" ${a} ${sent ? 'disabled' : ''}><i>✓</i>主管覆核</button>`;
-  if (t.needSend && (!t.review || checked)) h += `<button class="tick" role="checkbox" aria-checked="${sent}" aria-label="${sendLabel(t)}：${esc(t.title)}" data-act="${sent ? 'undoSent' : 'sent'}" ${a}><i>✓</i>${sendLabel(t)}</button>`;
+  if (t.review && done) h += `<button class="tick" role="checkbox" aria-checked="${checked}" aria-label="主管覆核：${esc(t.title)}" data-act="${checked ? 'undoReview' : 'review'}" ${a} ${sent || myName !== '主任' ? 'disabled' : ''}><i>✓</i>主管覆核</button>`;
+  if (t.needSend && (!t.review || checked)) h += `<button class="tick" role="checkbox" aria-checked="${sent}" aria-label="${sendLabel(t)}：${esc(titleOf(t, key))}" data-act="${sent ? 'undoSent' : 'sent'}" ${a}><i>✓</i>${sendLabel(t)}</button>`;
   return `<div class="ticks">${h}</div>`;
 }
 // 核銷日期下拉選單：截止日自動算成前一天。送件後就不能改。
@@ -70,7 +72,7 @@ function pickSelect(t, key) {
   const opts = pickDays(key).map(d => `<option value="${d}"${d === cur ? ' selected' : ''}>${short(d)}（${WZ[dow(d)]}）</option>`).join('');
   return `<label class="pick">${+key.slice(5)} 月核銷日期<select data-pick data-id="${esc(t.id)}" data-key="${esc(key)}"${r && r.sentAt ? ' disabled' : ''}><option value="">請選擇</option>${opts}</select></label>`;
 }
-const row = (t, o, b, now) => `<div class="row${b === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(t.title)}</div>${pickSelect(t, o.key)}<div class="meta">${pills(t)}${whenText(t, o, b, now)}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`;
+const row = (t, o, b, now) => `<div class="row${b === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(titleOf(t, o.key))}</div>${pickSelect(t, o.key)}<div class="meta">${pills(t)}${whenText(t, o, b, now)}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`;
 const section = (title, sub, rows, cls) => rows.length ? `<section><h2 class="${cls || ''}">${title}<small>${sub || rows.length + ' 件'}</small></h2><div class="list">${rows.join('')}</div></section>` : '';
 
 function renderToday() {
@@ -96,7 +98,7 @@ function renderAll() {
       const o = nextOcc(t, now, getRec);
       const last = t.freq === 'adhoc' ? [...recs.values()].filter(d => d.taskId === t.id).sort((a, b) => b.doneDate.localeCompare(a.doneDate))[0] : null;
       const next = t.freq === 'adhoc' ? (last ? `上次 ${short(last.doneDate)}` : '') : o ? (t.freq === 'daily' || t.freq === 'weekly' ? '' : needsPick(t, o.key) ? `${+o.key.slice(5)} 月還沒選日期` : `下次 ${short(o.due)}`) : '本期已結案';
-      return `<div class="row"><div class="main"><div class="title">${esc(t.title)}</div>${o ? pickSelect(t, o.key) : ''}<div class="meta">${pills(t)}<span>${esc(ruleText(t))}</span>${t.needSend ? `<span>要${esc(sendLabel(t).slice(1))}</span>` : ''}${next ? `<span>${next}</span>` : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div>${t.freq === 'adhoc' ? `<button class="log" data-act="done" data-id="${esc(t.id)}" data-key="${now}">今天做了</button>` : ''}<button class="edit" data-act="edit" data-id="${esc(t.id)}">修改</button></div>`;
+      return `<div class="row"><div class="main"><div class="title">${esc(o ? titleOf(t, o.key) : t.title)}</div>${o ? pickSelect(t, o.key) : ''}<div class="meta">${pills(t)}<span>${esc(ruleText(t))}</span>${t.needSend ? `<span>要${esc(sendLabel(t).slice(1))}</span>` : ''}${next ? `<span>${next}</span>` : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div>${t.freq === 'adhoc' ? `<button class="log" data-act="done" data-id="${esc(t.id)}" data-key="${now}">今天做了</button>` : ''}<button class="edit" data-act="edit" data-id="${esc(t.id)}">修改</button></div>`;
     });
     h += section(g, '', rows);
   }
@@ -132,12 +134,12 @@ function renderCal() {
     const ds = `${calMonth}-${String(d).padStart(2, '0')}`, l = by[ds] || [], w = dow(ds);
     const rank = { over: 0, open: 1, done: 2 }, over = l.some(x => x.state === 'over');
     l.sort((a, b) => rank[a.state] - rank[b.state] || (+!!b.t.gov - +!!a.t.gov) || (a.t.order || 0) - (b.t.order || 0));
-    const bars = l.slice(0, CAL_BARS).map(x => `<span class="ev ${x.state === 'open' ? 'e-' + (x.t.either ? 'either' : x.t.who) : 'e-' + x.state}">${esc(x.t.title)}</span>`).join('') + (l.length > CAL_BARS ? `<span class="evmore">還有 ${l.length - CAL_BARS} 件</span>` : '');
+    const bars = l.slice(0, CAL_BARS).map(x => `<span class="ev ${x.state === 'open' ? 'e-' + (x.t.either ? 'either' : x.t.who) : 'e-' + x.state}">${esc(titleOf(x.t, x.o.key))}</span>`).join('') + (l.length > CAL_BARS ? `<span class="evmore">還有 ${l.length - CAL_BARS} 件</span>` : '');
     const label = `${m} 月 ${d} 日，${l.length ? `${l.length} 件${over ? '，有逾期' : ''}` : '沒有事項'}`;
     cells += `<button class="cday${ds === now ? ' today' : ''}${w === 0 ? ' sun' : w === 6 ? ' sat' : ''}" data-act="calDay" data-id="${ds}" aria-label="${label}" aria-pressed="${ds === calSel}"><span class="dnum">${d}</span>${bars}</button>`;
   }
   const sel = calSel.slice(0, 7) === calMonth ? calSel : '', list = (by[sel] || []).sort((a, b) => (+!!b.t.gov - +!!a.t.gov) || (a.t.order || 0) - (b.t.order || 0));
-  const rows = list.map(({ t, o, state }) => `<div class="row${state === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(t.title)}</div>${pickSelect(t, o.key)}<div class="meta">${pills(t)}${state === 'over' ? `<span class="when-bad">已逾期 ${diff(now, o.due)} 天</span>` : ''}${o.stage !== 'todo' ? `<span class="when-warn">${pendingLabel(t, o.stage)}</span>` : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`);
+  const rows = list.map(({ t, o, state }) => `<div class="row${state === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(titleOf(t, o.key))}</div>${pickSelect(t, o.key)}<div class="meta">${pills(t)}${state === 'over' ? `<span class="when-bad">已逾期 ${diff(now, o.due)} 天</span>` : ''}${o.stage !== 'todo' ? `<span class="when-warn">${pendingLabel(t, o.stage)}</span>` : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`);
   const head = `<div class="calhead"><button class="btn" data-act="calPrev" aria-label="上個月">‹</button><h2>民國 ${y - 1911} 年 ${m} 月</h2><button class="btn" data-act="calNext" aria-label="下個月">›</button><button class="btn" data-act="calToday">回到今天</button></div>`;
   const grid = `<div class="calendar"><div class="cweek" aria-hidden="true">${[...WZ].map(z => `<span>${z}</span>`).join('')}</div><div class="cgrid">${cells}</div></div>`;
   const legend = '<div class="meta legend"><span><i class="dot e-director"></i>主任</span><span><i class="dot e-admin"></i>行政</span><span><i class="dot e-either"></i>皆可</span><span><i class="dot e-over"></i>逾期</span><span><i class="dot e-done"></i>已結案</span></div>';
@@ -213,12 +215,12 @@ const stamp = () => ({ by: myName, at: new Date().toISOString(), date: today() }
 async function act(a, id, key) {
   const t = taskOf(id); if (!t) return toast('這件事項已被刪除，無法更改。');
   const ref = refOf(t, key), s = stamp(), r = getRec(id, key);
-  const base = { taskId: id, key, title: t.title, who: t.who };
+  const name = titleOf(t, key), base = { taskId: id, key, title: name, who: t.who };
   try {
-    if (a === 'done') { await fb.setDoc(ref, { ...base, doneAt: s.at, doneBy: s.by, doneDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, 'done', s); toast(fu ? `已完成，已新增${fu}` : t.review ? '已完成，請主管覆核：' + t.title : t.needSend ? `已完成，記得${sendLabel(t).slice(1)}：` + t.title : '已完成：' + t.title); }
-    if (a === 'review') { await fb.setDoc(ref, { reviewAt: s.at, reviewBy: s.by, reviewDate: s.date }, { merge: true }); toast('已覆核，可以送件了：' + t.title); }
+    if (a === 'done') { await fb.setDoc(ref, { ...base, doneAt: s.at, doneBy: s.by, doneDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, 'done', s); toast(fu ? `已完成，已新增${fu}` : t.review ? '已完成，請主任覆核：' + name : t.needSend ? `已完成，記得${sendLabel(t).slice(1)}：` + name : '已完成：' + name); }
+    if (a === 'review') { await fb.setDoc(ref, { reviewAt: s.at, reviewBy: s.by, reviewDate: s.date }, { merge: true }); toast('已覆核，可以送件了：' + name); }
     if (a === 'undoReview') { await fb.updateDoc(ref, { reviewAt: fb.deleteField(), reviewBy: fb.deleteField(), reviewDate: fb.deleteField() }); toast('已取消覆核'); }
-    if (a === 'sent') { await fb.setDoc(ref, { ...base, ...(r && r.doneAt ? {} : { doneAt: s.at, doneBy: s.by, doneDate: s.date }), sentAt: s.at, sentBy: s.by, sentDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, 'sent', s); toast(fu ? `${sendLabel(t)}，已新增${fu}` : `${sendLabel(t)}，結案：` + t.title); }
+    if (a === 'sent') { await fb.setDoc(ref, { ...base, ...(r && r.doneAt ? {} : { doneAt: s.at, doneBy: s.by, doneDate: s.date }), sentAt: s.at, sentBy: s.by, sentDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, 'sent', s); toast(fu ? `${sendLabel(t)}，已新增${fu}` : `${sendLabel(t)}，結案：` + name); }
     if (a === 'undoSent') { await fb.updateDoc(ref, { sentAt: fb.deleteField(), sentBy: fb.deleteField(), sentDate: fb.deleteField() }); await dropFollowUp(t, key, on => on === 'sent'); toast('已取消' + sendLabel(t).slice(1)); }
     if (a === 'undoDone') { await fb.deleteDoc(ref); toast(await dropFollowUp(t, key) ? '已取消完成，自動新增的事項也移除了' : '已取消完成'); }
   } catch (e) { console.error(e); toast('沒有存到，請再按一次。'); }
@@ -246,7 +248,7 @@ async function save() {
   if (freq === 'months' && !months.length) return toast('請至少選一個月份。');
   const old = editing, title = $('fTitle').value.trim(); if (!title) return;
   const group = freq === 'months' ? (old && old.freq === 'months' ? old.group : (months.length === 1 ? '每年' : '每季')) : GMAP[freq];
-  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData', 'pick', 'picks', 'review', 'vouchers'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
+  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData', 'pick', 'picks', 'review', 'vouchers', 'monthTitle', 'rollBack', 'shift'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
   const data = { ...keep, who: $('fWho').value, group, freq, title, months: freq === 'monthly' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : freq === 'months' ? months : [],
     day: +$('fDay').value || 31, lead: +$('fLead').value || 0, gov: $('fGov').checked, verify: $('fVerify').checked, note: $('fNote').value.trim(),
     needSend: freq !== 'daily' && freq !== 'adhoc' && $('fSend').checked, rollover: (freq === 'monthly' || freq === 'months') && $('fRoll').checked, from: old ? old.from : today(), order: old ? old.order : Date.now() };
@@ -344,6 +346,15 @@ async function upgradeData() {
     put((sup || tasks[0]).id, { vouchers: true }, true);
     for (const i of [1, 2]) put('voucher-' + i, { ...VOUCHER, id: 'voucher-' + i, title: `憑證核銷製作（第 ${i} 次）`, order: 900 + i });
   }
+  // 薪資、排班：月底做好下個月的，到期日 1 號，遇假日提前。今年 11 月那期已過，從 12 月開始。
+  for (const title of ['薪資製作', '排班表']) { const t = tasks.find(x => x.title === title && !x.monthTitle); if (t) put(t.id, { monthTitle: true, rollBack: true, day: 1, from: '2026-11-02' }, true); }
+  // 登革熱場域巡檢表：每週二、四，遇假日改到同週其他天。
+  const den = tasks.find(t => t.title === '登革熱場域巡檢表' && t.freq === 'weekly');
+  if (den) {
+    put(den.id, { title: '登革熱場域巡檢表（週二）', weekday: 2, shift: [1, 3, 5] }, true);
+    const id = den.id + '-thu', { order, ...d } = den;
+    put(id, { ...d, id, title: '登革熱場域巡檢表（週四）', weekday: 4, shift: [5, 3, 1], from: '2026-11-02', order: (order || 0) + .5 });
+  }
   if (!n) return;
   upgrading = true;
   try { await b.commit(); } catch (e) { console.error(e); } finally { upgrading = false; }
@@ -412,7 +423,7 @@ document.addEventListener('click', e => {
 document.addEventListener('change', async e => {
   if (e.target.matches('select[data-pick]')) {
     const { id, key } = e.target.dataset, d = e.target.value;
-    try { await fb.setDoc(fb.doc(db, 'tasks', id), { picks: { [key]: d } }, { merge: true }); toast(d ? `截止日是 ${short(addDays(d, -1))}` : '已清除日期'); } catch (err) { console.error(err); toast('沒有存到，請再選一次。'); }
+    try { await fb.setDoc(fb.doc(db, 'tasks', id), { picks: { [key]: d } }, { merge: true }); toast(d ? `截止日是 ${short(pickDeadline(d))}` : '已清除日期'); } catch (err) { console.error(err); toast('沒有存到，請再選一次。'); }
     return;
   }
   if (e.target.id !== 'impFile') return;
