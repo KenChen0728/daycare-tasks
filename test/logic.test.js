@@ -1,5 +1,5 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays, monthOccs, addMonth, followUpTasks, followUpIds, planTasks, keyEnd, termKey, termOf, shiftTerm, pendingLabel } from '../logic.js';
+import { nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays, monthOccs, addMonth, followUpTasks, followUpIds, planTasks, keyEnd, termKey, termOf, shiftTerm, pendingLabel, stageOf, needsPick, pickDays } from '../logic.js';
 const none = () => undefined;
 const M = { id:'m', who:'admin', freq:'monthly', months:[1,2,3,4,5,6,7,8,9,10,11,12], day:31, lead:7, from:'2026-11-01', title:'月', gov:false };
 const S = { ...M, id:'s', needSend:true, gov:true };
@@ -98,4 +98,25 @@ test('到期前一個月才進快到期', () => {
 test('自辦研習照計畫的日子出現', () => {
   const P=planTasks({id:'p',deadline:'2026-12-01',start:'2027-03-10',end:'2027-03-10',time:'',name:''},'2026-11-03'), g=P.find(t=>t.id==='p-gov'), o={key:'once',due:g.date,stage:'todo'};
   assert.equal(bucket(g,o,'2027-02-23'),'later'); assert.equal(bucket(g,o,'2027-02-24'),'soon');
+});
+test('憑證核銷：選日期，截止日是前一天', () => {
+  const V={id:'v',who:'admin',either:true,freq:'monthly',months:[1,2,3,4,5,6,7,8,9,10,11,12],day:31,from:'2026-11-01',title:'憑證核銷製作',needSend:true,sendLabel:'已送件',review:true,pick:true,picks:{}};
+  assert.equal(needsPick(V,'2026-11'),true); assert.equal(nextOcc(V,'2026-11-04',none).due,'2026-11-30');
+  assert.deepEqual(monthOccs(V,2026,11,none),[]);
+  const P={...V,picks:{'2026-11':'2026-11-12'}};
+  assert.equal(nextOcc(P,'2026-11-04',none).due,'2026-11-11'); assert.equal(monthOccs(P,2026,11,none)[0].due,'2026-11-11');
+  const F={...V,picks:{'2026-11':'2026-11-01'}};   // 截止日落在開始日之前，仍要算
+  assert.equal(nextOcc(F,'2026-11-04',none).due,'2026-10-31'); assert.equal(monthOccs(F,2026,10,none)[0].key,'2026-11');
+  const E={...V,picks:{'2026-12':'2026-12-01'}};
+  assert.equal(monthOccs(E,2026,11,none).find(o=>o.key==='2026-12').due,'2026-11-30');
+  assert.equal(pickDays('2027-02').length,28);
+});
+test('憑證核銷：完成、主管覆核、已送件才結案', () => {
+  const V={id:'v',who:'admin',freq:'monthly',months:[11,12],day:31,from:'2026-11-01',title:'憑證',needSend:true,sendLabel:'已送件',review:true,pick:true,picks:{'2026-11':'2026-11-12'}};
+  assert.equal(stageOf(V,{doneAt:1}),'review'); assert.equal(pendingLabel(V,'review'),'待主管覆核');
+  assert.equal(stageOf(V,{doneAt:1,reviewAt:1}),'send'); assert.equal(pendingLabel(V,'send'),'待送件');
+  assert.equal(nextOcc(V,'2026-11-05',()=>({doneAt:1})).stage,'review');
+  assert.equal(nextOcc(V,'2026-11-05',(i,k)=>k==='2026-11'?{doneAt:1,reviewAt:1,sentAt:1}:undefined).key,'2026-12');
+  const t=formatReminder(buildReminder([V],'2026-11-05',()=>({doneAt:1})),'u','2026-11-05'); assert.match(t,/待主管覆核/);
+  const u=formatReminder(buildReminder([{...V,picks:{}}],'2026-11-05',none),'u','2026-11-05'); assert.match(u,/11 月還沒選日期/);
 });

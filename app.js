@@ -1,6 +1,6 @@
 import { firebaseConfig, APP_URL } from './firebase-config.js';
 import * as fb from './vendor/firebase.js';
-import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf, monthOccs, sendLabel, pendingLabel, eitherLabel, followUpTasks, followUpIds, planTasks, termOf, termKey, shiftTerm, keyEnd } from './logic.js';
+import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf, monthOccs, sendLabel, pendingLabel, eitherLabel, followUpTasks, followUpIds, planTasks, needsPick, pickDays, termOf, termKey, shiftTerm, keyEnd } from './logic.js';
 import { renderHelp } from './help.js';
 
 const $ = id => document.getElementById(id);
@@ -12,6 +12,7 @@ const rocDate = s => { const [y, m, d] = s.split('-').map(Number); return `民�
 const short = s => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
 const today = () => taipeiToday();
 function ruleText(t) {
+  if (t.pick) return '每月兩次，選核銷日期，前一天截止';
   if (t.freq === 'daily') return '每個上班日';
   if (t.freq === 'weekly') return '每週' + WZ[t.weekday || 5] + '前';
   if (t.freq === 'adhoc') return '有需要時';
@@ -48,18 +49,28 @@ function whenText(t, o, b, now) {
   const d = diff(o.due, now);
   if (b === 'over') return `<span class="when-bad">已逾期 ${-d} 天（${short(o.due)}）</span>`;
   if (t.freq === 'daily') return '';
+  if (needsPick(t, o.key)) return '<span class="when-warn">還沒選日期</span>';
   if (d === 0) return '<span class="when-bad">今天到期</span>';
   if (d <= 7) return `<span class="when-warn">剩 ${d} 天（${short(o.due)}）</span>`;
   return `<span>${short(o.due)} 到期，剩 ${d} 天</span>`;
 }
 function ticks(t, key) {
   const r = getRec(t.id, key), a = `data-id="${esc(t.id)}" data-key="${esc(key)}"`;
-  const done = !!(r && r.doneAt), sent = !!(r && r.sentAt);
-  let h = `<button class="tick" role="checkbox" aria-checked="${done}" aria-label="完成：${esc(t.title)}" data-act="${done ? 'undoDone' : 'done'}" ${a} ${sent ? 'disabled' : ''}><i>✓</i>完成</button>`;
-  if (t.needSend) h += `<button class="tick" role="checkbox" aria-checked="${sent}" aria-label="${sendLabel(t)}：${esc(t.title)}" data-act="${sent ? 'undoSent' : 'sent'}" ${a}><i>✓</i>${sendLabel(t)}</button>`;
+  const done = !!(r && r.doneAt), sent = !!(r && r.sentAt), checked = !!(r && r.reviewAt);
+  let h = `<button class="tick" role="checkbox" aria-checked="${done}" aria-label="完成：${esc(t.title)}" data-act="${done ? 'undoDone' : 'done'}" ${a} ${sent || checked ? 'disabled' : ''}><i>✓</i>完成</button>`;
+  // 要覆核的事項一步一步出現：完成 → 主管覆核 → 已送件。
+  if (t.review && done) h += `<button class="tick" role="checkbox" aria-checked="${checked}" aria-label="主管覆核：${esc(t.title)}" data-act="${checked ? 'undoReview' : 'review'}" ${a} ${sent ? 'disabled' : ''}><i>✓</i>主管覆核</button>`;
+  if (t.needSend && (!t.review || checked)) h += `<button class="tick" role="checkbox" aria-checked="${sent}" aria-label="${sendLabel(t)}：${esc(t.title)}" data-act="${sent ? 'undoSent' : 'sent'}" ${a}><i>✓</i>${sendLabel(t)}</button>`;
   return `<div class="ticks">${h}</div>`;
 }
-const row = (t, o, b, now) => `<div class="row${b === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(t.title)}</div><div class="meta">${pills(t)}${whenText(t, o, b, now)}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`;
+// 核銷日期下拉選單：截止日自動算成前一天。送件後就不能改。
+function pickSelect(t, key) {
+  if (!t.pick) return '';
+  const cur = (t.picks || {})[key] || '', r = getRec(t.id, key);
+  const opts = pickDays(key).map(d => `<option value="${d}"${d === cur ? ' selected' : ''}>${short(d)}（${WZ[dow(d)]}）</option>`).join('');
+  return `<label class="pick">${+key.slice(5)} 月核銷日期<select data-pick data-id="${esc(t.id)}" data-key="${esc(key)}"${r && r.sentAt ? ' disabled' : ''}><option value="">請選擇</option>${opts}</select></label>`;
+}
+const row = (t, o, b, now) => `<div class="row${b === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(t.title)}</div>${pickSelect(t, o.key)}<div class="meta">${pills(t)}${whenText(t, o, b, now)}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`;
 const section = (title, sub, rows, cls) => rows.length ? `<section><h2 class="${cls || ''}">${title}<small>${sub || rows.length + ' 件'}</small></h2><div class="list">${rows.join('')}</div></section>` : '';
 
 function renderToday() {
@@ -67,16 +78,16 @@ function renderToday() {
   for (const t of tasks.filter(show)) {
     const o = nextOcc(t, now, getRec); if (!o) continue;
     const k = bucket(t, o, now);
-    if (o.stage === 'send') b.send.push({ t, o, k });
+    if (o.stage !== 'todo') b.send.push({ t, o, k });
     else if (b[k]) b[k].push({ t, o, k });
   }
   for (const k in b) b[k].sort((x, y) => x.o.due.localeCompare(y.o.due) || (+!!y.t.gov - +!!x.t.gov) || (x.t.order || 0) - (y.t.order || 0));
   const r = k => b[k].map(x => row(x.t, x.o, x.k, now));
-  const fin = [...recs.values()].filter(d => (d.doneDate === now || d.sentDate === now) && showRec(d)).filter(d => { const t = taskOf(d.taskId); return !t || stageOf(t, d) !== 'send'; })
+  const fin = [...recs.values()].filter(d => (d.doneDate === now || d.sentDate === now) && showRec(d)).filter(d => { const t = taskOf(d.taskId); return !t || stageOf(t, d) === 'todo'; })
     .map(d => { const t = taskOf(d.taskId) || { id: d.taskId, title: d.title, who: d.who }; return `<div class="row">${ticks(t, d.key)}<div class="main"><div class="title">${esc(d.title)}</div><div class="meta"><span class="pill p-${esc(d.who)}">${WHO[d.who] || ''}</span></div></div></div>`; });
   const open = b.over.length + b.today.length + b.week.length + b.soon.length + b.send.length;
   $('tally').innerHTML = `${b.over.length ? `<span class="bad">逾期 <b>${b.over.length}</b></span>` : ''}<span>今天 <b>${b.today.length}</b></span><span>本週 <b>${b.week.length}</b></span><span class="warn">快到期 <b>${b.soon.length}</b></span><span>待送出 <b>${b.send.length}</b></span>`;
-  return (open ? '' : '<div class="empty">目前沒有要處理的事項。</div>') + section('已完成、還沒結案', '第二個勾打完才算結案', r('send')) + section('已逾期', '', r('over'), 'bad') + section('今天要做', '', r('today')) + section('本週要做', '', r('week')) + section('快到期', '', r('soon')) + section('今天已處理', '再按一次可取消', fin);
+  return (open ? '' : '<div class="empty">目前沒有要處理的事項。</div>') + section('已完成、還沒結案', '最後一個勾打完才算結案', r('send')) + section('已逾期', '', r('over'), 'bad') + section('今天要做', '', r('today')) + section('本週要做', '', r('week')) + section('快到期', '', r('soon')) + section('今天已處理', '再按一次可取消', fin);
 }
 function renderAll() {
   const now = today(); let h = '<div class="actions start"><button class="btn primary" data-act="planNew">＋ 自辦研習計畫生成</button></div>';
@@ -84,8 +95,8 @@ function renderAll() {
     const rows = tasks.filter(t => show(t) && t.group === g).sort((a, b) => (a.order || 0) - (b.order || 0)).map(t => {
       const o = nextOcc(t, now, getRec);
       const last = t.freq === 'adhoc' ? [...recs.values()].filter(d => d.taskId === t.id).sort((a, b) => b.doneDate.localeCompare(a.doneDate))[0] : null;
-      const next = t.freq === 'adhoc' ? (last ? `上次 ${short(last.doneDate)}` : '') : o ? (t.freq === 'daily' || t.freq === 'weekly' ? '' : `下次 ${short(o.due)}`) : '本期已結案';
-      return `<div class="row"><div class="main"><div class="title">${esc(t.title)}</div><div class="meta">${pills(t)}<span>${esc(ruleText(t))}</span>${t.needSend ? '<span>要${esc(sendLabel(t).slice(1))}</span>' : ''}${next ? `<span>${next}</span>` : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div>${t.freq === 'adhoc' ? `<button class="log" data-act="done" data-id="${esc(t.id)}" data-key="${now}">今天做了</button>` : ''}<button class="edit" data-act="edit" data-id="${esc(t.id)}">修改</button></div>`;
+      const next = t.freq === 'adhoc' ? (last ? `上次 ${short(last.doneDate)}` : '') : o ? (t.freq === 'daily' || t.freq === 'weekly' ? '' : needsPick(t, o.key) ? `${+o.key.slice(5)} 月還沒選日期` : `下次 ${short(o.due)}`) : '本期已結案';
+      return `<div class="row"><div class="main"><div class="title">${esc(t.title)}</div>${o ? pickSelect(t, o.key) : ''}<div class="meta">${pills(t)}<span>${esc(ruleText(t))}</span>${t.needSend ? `<span>要${esc(sendLabel(t).slice(1))}</span>` : ''}${next ? `<span>${next}</span>` : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div>${t.freq === 'adhoc' ? `<button class="log" data-act="done" data-id="${esc(t.id)}" data-key="${now}">今天做了</button>` : ''}<button class="edit" data-act="edit" data-id="${esc(t.id)}">修改</button></div>`;
     });
     h += section(g, '', rows);
   }
@@ -97,7 +108,7 @@ function renderLog() {
   const by = {}; list.forEach(d => (by[d.doneDate || d.sentDate] ||= []).push(d));
   return Object.keys(by).sort().reverse().slice(0, 60).map(k => section(rocDate(k), '', by[k].map(d => {
     const t = taskOf(d.taskId) || { id: d.taskId, title: d.title, who: d.who };
-    return `<div class="row">${ticks(t, d.key)}<div class="main"><div class="title">${esc(d.title)}</div><div class="meta"><span class="pill p-${esc(d.who)}">${WHO[d.who] || ''}</span>${d.doneAt ? `<span>${esc(d.doneBy)} 完成</span>` : ''}${d.sentAt ? `<span>${esc(d.sentBy)} ${short(d.sentDate)} ${esc(sendLabel(t).slice(1))}</span>` : ''}</div></div></div>`;
+    return `<div class="row">${ticks(t, d.key)}<div class="main"><div class="title">${esc(d.title)}</div><div class="meta"><span class="pill p-${esc(d.who)}">${WHO[d.who] || ''}</span>${d.doneAt ? `<span>${esc(d.doneBy)} 完成</span>` : ''}${d.reviewAt ? `<span>${esc(d.reviewBy)} ${short(d.reviewDate)} 覆核</span>` : ''}${d.sentAt ? `<span>${esc(d.sentBy)} ${short(d.sentDate)} ${esc(sendLabel(t).slice(1))}</span>` : ''}</div></div></div>`;
   }))).join('');
 }
 function calItems(ym, now) {
@@ -126,7 +137,7 @@ function renderCal() {
     cells += `<button class="cday${ds === now ? ' today' : ''}${w === 0 ? ' sun' : w === 6 ? ' sat' : ''}" data-act="calDay" data-id="${ds}" aria-label="${label}" aria-pressed="${ds === calSel}"><span class="dnum">${d}</span>${bars}</button>`;
   }
   const sel = calSel.slice(0, 7) === calMonth ? calSel : '', list = (by[sel] || []).sort((a, b) => (+!!b.t.gov - +!!a.t.gov) || (a.t.order || 0) - (b.t.order || 0));
-  const rows = list.map(({ t, o, state }) => `<div class="row${state === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(t.title)}</div><div class="meta">${pills(t)}${state === 'over' ? `<span class="when-bad">已逾期 ${diff(now, o.due)} 天</span>` : ''}${o.stage === 'send' && !o.closed ? `<span class="when-warn">${pendingLabel(t)}</span>` : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`);
+  const rows = list.map(({ t, o, state }) => `<div class="row${state === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(t.title)}</div>${pickSelect(t, o.key)}<div class="meta">${pills(t)}${state === 'over' ? `<span class="when-bad">已逾期 ${diff(now, o.due)} 天</span>` : ''}${o.stage !== 'todo' ? `<span class="when-warn">${pendingLabel(t, o.stage)}</span>` : ''}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`);
   const head = `<div class="calhead"><button class="btn" data-act="calPrev" aria-label="上個月">‹</button><h2>民國 ${y - 1911} 年 ${m} 月</h2><button class="btn" data-act="calNext" aria-label="下個月">›</button><button class="btn" data-act="calToday">回到今天</button></div>`;
   const grid = `<div class="calendar"><div class="cweek" aria-hidden="true">${[...WZ].map(z => `<span>${z}</span>`).join('')}</div><div class="cgrid">${cells}</div></div>`;
   const legend = '<div class="meta legend"><span><i class="dot e-director"></i>主任</span><span><i class="dot e-admin"></i>行政</span><span><i class="dot e-either"></i>皆可</span><span><i class="dot e-over"></i>逾期</span><span><i class="dot e-done"></i>已結案</span></div>';
@@ -204,7 +215,9 @@ async function act(a, id, key) {
   const ref = refOf(t, key), s = stamp(), r = getRec(id, key);
   const base = { taskId: id, key, title: t.title, who: t.who };
   try {
-    if (a === 'done') { await fb.setDoc(ref, { ...base, doneAt: s.at, doneBy: s.by, doneDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, 'done', s); toast(fu ? `已完成，已新增${fu}` : t.needSend ? `已完成，記得${sendLabel(t).slice(1)}：` + t.title : '已完成：' + t.title); }
+    if (a === 'done') { await fb.setDoc(ref, { ...base, doneAt: s.at, doneBy: s.by, doneDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, 'done', s); toast(fu ? `已完成，已新增${fu}` : t.review ? '已完成，請主管覆核：' + t.title : t.needSend ? `已完成，記得${sendLabel(t).slice(1)}：` + t.title : '已完成：' + t.title); }
+    if (a === 'review') { await fb.setDoc(ref, { reviewAt: s.at, reviewBy: s.by, reviewDate: s.date }, { merge: true }); toast('已覆核，可以送件了：' + t.title); }
+    if (a === 'undoReview') { await fb.updateDoc(ref, { reviewAt: fb.deleteField(), reviewBy: fb.deleteField(), reviewDate: fb.deleteField() }); toast('已取消覆核'); }
     if (a === 'sent') { await fb.setDoc(ref, { ...base, ...(r && r.doneAt ? {} : { doneAt: s.at, doneBy: s.by, doneDate: s.date }), sentAt: s.at, sentBy: s.by, sentDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, 'sent', s); toast(fu ? `${sendLabel(t)}，已新增${fu}` : `${sendLabel(t)}，結案：` + t.title); }
     if (a === 'undoSent') { await fb.updateDoc(ref, { sentAt: fb.deleteField(), sentBy: fb.deleteField(), sentDate: fb.deleteField() }); await dropFollowUp(t, key, on => on === 'sent'); toast('已取消' + sendLabel(t).slice(1)); }
     if (a === 'undoDone') { await fb.deleteDoc(ref); toast(await dropFollowUp(t, key) ? '已取消完成，自動新增的事項也移除了' : '已取消完成'); }
@@ -233,7 +246,7 @@ async function save() {
   if (freq === 'months' && !months.length) return toast('請至少選一個月份。');
   const old = editing, title = $('fTitle').value.trim(); if (!title) return;
   const group = freq === 'months' ? (old && old.freq === 'months' ? old.group : (months.length === 1 ? '每年' : '每季')) : GMAP[freq];
-  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
+  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData', 'pick', 'picks', 'review', 'vouchers'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
   const data = { ...keep, who: $('fWho').value, group, freq, title, months: freq === 'monthly' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : freq === 'months' ? months : [],
     day: +$('fDay').value || 31, lead: +$('fLead').value || 0, gov: $('fGov').checked, verify: $('fVerify').checked, note: $('fNote').value.trim(),
     needSend: freq !== 'daily' && freq !== 'adhoc' && $('fSend').checked, rollover: (freq === 'monthly' || freq === 'months') && $('fRoll').checked, from: old ? old.from : today(), order: old ? old.order : Date.now() };
@@ -315,6 +328,7 @@ const after = (name, sat) => [{ ...SHARED, title: sat }, { ...SHARED, title: nam
 const AFTER = { 'kpi-meeting': after('親師座談會', '親師座談會活動滿意度調查'), 'kpi-family': after('親子活動', '親子活動滿意度調查') };
 const NEW_KPI = [['kpi-meeting', '親師座談會', 'term', 1], ['kpi-family', '親子活動', 'term', 2], ['kpi-parenting', '親職講座', 'term', 3], ['kpi-community', '社區宣導', 'year', 5]];
 const HALF = { kpi: 'half', group: '每半年', months: [6, 12], day: 31, lead: 60, from: '2026-08-01', order: 4, followUps: [{ ...SHARED, title: '滿意度成果報告書' }] };
+const VOUCHER = { who: 'admin', either: true, group: '每月', freq: 'monthly', months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], day: 31, lead: 0, from: '2026-11-01', note: '', gov: false, verify: false, needSend: true, sendLabel: '已送件', rollover: false, pick: true, picks: {}, review: true };
 let upgrading = false;
 async function upgradeData() {
   if (upgrading) return;
@@ -325,6 +339,11 @@ async function upgradeData() {
     for (const [id, title, kpi, order] of NEW_KPI) put(id, { ...KPI, id, title, kpi, order, ...(AFTER[id] ? { followUps: AFTER[id] } : {}), who: 'director', note: '', gov: false, verify: false, needSend: false, rollover: false });
   } else for (const id in AFTER) { const t = taskOf(id); if (t && !t.followUps) put(id, { followUps: AFTER[id] }, true); }
   if (sat && sat.kpi !== 'half') put(sat.id, HALF, true);
+  // 憑證核銷製作：標記記在既有事項上，之後刪掉不會被加回來。
+  if (tasks.length && !tasks.some(t => t.vouchers)) {
+    put((sup || tasks[0]).id, { vouchers: true }, true);
+    for (const i of [1, 2]) put('voucher-' + i, { ...VOUCHER, id: 'voucher-' + i, title: `憑證核銷製作（第 ${i} 次）`, order: 900 + i });
+  }
   if (!n) return;
   upgrading = true;
   try { await b.commit(); } catch (e) { console.error(e); } finally { upgrading = false; }
@@ -391,6 +410,11 @@ document.addEventListener('click', e => {
   act(a, b.dataset.id, b.dataset.key);
 });
 document.addEventListener('change', async e => {
+  if (e.target.matches('select[data-pick]')) {
+    const { id, key } = e.target.dataset, d = e.target.value;
+    try { await fb.setDoc(fb.doc(db, 'tasks', id), { picks: { [key]: d } }, { merge: true }); toast(d ? `截止日是 ${short(addDays(d, -1))}` : '已清除日期'); } catch (err) { console.error(err); toast('沒有存到，請再選一次。'); }
+    return;
+  }
   if (e.target.id !== 'impFile') return;
   try {
     importData = JSON.parse(await e.target.files[0].text());

@@ -15,13 +15,21 @@ export const taipeiToday = (d = new Date()) =>
 export const collectionFor = t => (t.freq === 'daily' || t.freq === 'weekly') ? 'quick' : 'records';
 export const recordId = (id, key) => id + '__' + key;
 export const isClosed = (t, r) => !!r && (t.needSend ? !!r.sentAt : !!r.doneAt);
-export const stageOf = (t, r) => (r && r.doneAt && t.needSend && !r.sentAt) ? 'send' : 'todo';
+export const stageOf = (t, r) => {
+  if (!r || !r.doneAt || !t.needSend || r.sentAt) return 'todo';
+  return t.review && !r.reviewAt ? 'review' : 'send';
+};
 const openOcc = (t, key, due, get) => { const r = get(t.id, key); return isClosed(t, r) ? null : { key, due, stage: stageOf(t, r) }; };
 
 // 第二個勾的名稱：多數是「已送出」，報告書這類是「已印出」。
 export const sendLabel = t => t.sendLabel || '已送出';
-export const pendingLabel = t => '待' + sendLabel(t).slice(1);
+export const pendingLabel = (t, stage) => stage === 'review' ? '待主管覆核' : '待' + sendLabel(t).slice(1);
 export const eitherLabel = '主任或行政皆可';
+
+/* 每期日期不固定的事項：選核銷日期，截止日是前一天。還沒選時先用月底當期限。 */
+export const needsPick = (t, key) => !!t.pick && !(t.picks || {})[key];
+const pickDue = (t, key, due) => t.pick && (t.picks || {})[key] ? addDays(t.picks[key], -1) : due;
+export const pickDays = key => Array.from({ length: lastDay(+key.slice(0, 4), +key.slice(5, 7)) }, (_, i) => key + '-' + pad(i + 1));
 
 /* 加一個月，遇到月份天數不同時取該月最後一天。 */
 export function addMonth(s) {
@@ -101,7 +109,7 @@ export function nextOcc(t, today, get) {
     if ((t.months || []).includes(m)) {
       const raw = y + '-' + pad(m) + '-' + pad(Math.min(t.day || 31, lastDay(y, m))), key = y + '-' + pad(m);
       const due = t.rollover ? rollDue(raw) : raw;
-      if (due >= start) { const o = openOcc(t, key, due, get); if (o) return o; }
+      if (due >= start) { const o = openOcc(t, key, pickDue(t, key, due), get); if (o) return o; }
     }
     if (++m > 12) { m = 1; y++; }
   }
@@ -122,11 +130,12 @@ export function monthOccs(t, y, m, get) {
   }
   if (t.freq === 'monthly' || t.freq === 'months') {
     // 上個月底順延過來的那一期也算在這個月。
-    for (const [yy, mm] of [m === 1 ? [y - 1, 12] : [y, m - 1], [y, m]]) {
-      if (!(t.months || []).includes(mm)) continue;
+    // 選下個月 1 號核銷時，截止日會落在這個月。
+    for (const [yy, mm] of [m === 1 ? [y - 1, 12] : [y, m - 1], [y, m], ...(t.pick ? [m === 12 ? [y + 1, 1] : [y, m + 1]] : [])]) {
+      if (!(t.months || []).includes(mm) || needsPick(t, yy + '-' + pad(mm))) continue;
       const raw = yy + '-' + pad(mm) + '-' + pad(Math.min(t.day || 31, lastDay(yy, mm)));
       const due = t.rollover ? rollDue(raw) : raw;
-      if (!t.from || due >= t.from) push(yy + '-' + pad(mm), due);
+      if (!t.from || due >= t.from) push(yy + '-' + pad(mm), pickDue(t, yy + '-' + pad(mm), due));
     }
   }
   return out;
@@ -167,8 +176,8 @@ const WZ = '日一二三四五六';
 const md = s => `${+s.slice(5, 7)}/${+s.slice(8, 10)}（${WZ[dow(s)]}）`;
 function item(x, today) {
   const d = diff(x.o.due, today), when = d < 0 ? `逾期 ${-d} 天` : d === 0 ? '今天到期' : `剩 ${d} 天`;
-  const tags = [x.t.gov ? '交縣府' : '', x.t.either ? eitherLabel : '', x.o.stage === 'send' ? '已完成，' + pendingLabel(x.t) : ''].filter(Boolean);
-  return `・${x.t.title}\n　${md(x.o.due)} ${when}${tags.length ? '｜' + tags.join('｜') : ''}`;
+  const tags = [x.t.gov ? '交縣府' : '', x.t.either ? eitherLabel : '', x.o.stage !== 'todo' ? '已完成，' + pendingLabel(x.t, x.o.stage) : ''].filter(Boolean);
+  return `・${x.t.title}\n　${needsPick(x.t, x.o.key) ? `${+x.o.key.slice(5)} 月還沒選日期` : md(x.o.due) + ' ' + when}${tags.length ? '｜' + tags.join('｜') : ''}`;
 }
 
 export function formatReminder(rem, url, today) {
