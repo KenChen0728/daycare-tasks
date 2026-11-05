@@ -50,12 +50,28 @@ const putMeta = fields => http(`${base}/meta/reminder`, {
   method: 'PATCH', headers: { ...auth, 'content-type': 'application/json' },
   body: JSON.stringify({ fields: Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, enc(v)])) })
 }, '寫入提醒狀態');
+const lineHeaders = { authorization: 'Bearer ' + LINE_TOKEN, 'content-type': 'application/json' };
+// LINE 暫時故障時重試兩次；同一個 retry key 不會重複發送。額度用完不重試。
 async function broadcast(texts) {
-  await http('https://api.line.me/v2/bot/message/broadcast', {
-    method: 'POST',
-    headers: { authorization: 'Bearer ' + LINE_TOKEN, 'content-type': 'application/json', 'X-Line-Retry-Key': crypto.randomUUID() },
-    body: JSON.stringify({ messages: texts.map(text => ({ type: 'text', text })) })
-  }, 'LINE 發送');
+  const key = crypto.randomUUID();
+  for (let i = 1; ; i++) {
+    const r = await fetch('https://api.line.me/v2/bot/message/broadcast', {
+      method: 'POST', headers: { ...lineHeaders, 'X-Line-Retry-Key': key },
+      body: JSON.stringify({ messages: texts.map(text => ({ type: 'text', text })) })
+    });
+    if (r.ok) return;
+    const body = (await r.text()).slice(0, 300);
+    if (r.status < 500 || i === 3) throw new Error(`LINE 發送失敗：HTTP ${r.status} ${body}`);
+    await new Promise(ok => setTimeout(ok, +(process.env.RETRY_MS || 20000)));
+  }
+}
+const failReason = e => /monthly limit/i.test(e.message) ? '這個月的 LINE 額度用完了' : 'LINE 暫時發不出去';
+// 這個月用了幾則。查不到不影響提醒。
+async function quota() {
+  try {
+    const [u, l] = await Promise.all([http('https://api.line.me/v2/bot/message/quota/consumption', { headers: lineHeaders }, 'LINE 用量'), http('https://api.line.me/v2/bot/message/quota', { headers: lineHeaders }, 'LINE 額度')]);
+    return { used: Number(u.totalUsage) || 0, ...(l.type === 'limited' ? { limit: Number(l.value) || 0 } : {}) };
+  } catch (_) { return {}; }
 }
 
 const today = taipeiToday();
@@ -68,7 +84,8 @@ if (!tasks.length) throw new Error('讀不到任何事項，請檢查資料');
 const map = new Map([...records, ...quick].map(r => [r.id, r]));
 const get = (id, key) => map.get(recordId(id, key));
 const rem = buildReminder(tasks, today, get);
-const text = formatReminder(rem, APP_URL, today);
+// LINE 裡點連結時，改用手機的瀏覽器開啟，才會記得登入。
+const text = formatReminder(rem, APP_URL + '?openExternalBrowser=1', today);
 
 if (MODE === 'test') {
   await broadcast(splitText('【測試訊息】\n\n' + text));
@@ -76,6 +93,14 @@ if (MODE === 'test') {
   process.exit(0);
 }
 const send = shouldSend(rem, meta.soonIds || []);
-if (send) await broadcast(splitText(text));
-await putMeta({ date: today, slotKey, at: new Date().toISOString(), sent: send ? '已發送' : '沒有要提醒的事', soonIds: rem.soonIds });
+if (send) {
+  try { await broadcast(splitText(text)); }
+  catch (e) {
+    // 發送失敗也要留下紀錄，讓 App 當天就能告訴使用者。
+    await putMeta({ ...meta, failDate: today, failAt: new Date().toISOString(), fail: failReason(e) }).catch(() => {});
+    throw e;
+  }
+}
+const nowIso = new Date().toISOString(), sameDay = (meta.sentAt || '') && new Date(meta.sentAt).toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' }) === today;
+await putMeta({ date: today, slotKey, at: nowIso, sent: send ? '已發送' : '沒有要提醒的事', soonIds: rem.soonIds, ...(send ? { sentAt: nowIso } : sameDay ? { sentAt: meta.sentAt } : {}), ...(await quota()) });
 console.log(send ? '已發送提醒' : '今天沒有要提醒的事');

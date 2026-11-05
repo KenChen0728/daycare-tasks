@@ -88,6 +88,8 @@ export const shiftTerm = (key, n) => { let y = +key.slice(0, 4), up = key.endsWi
 const FIXED_HOLIDAYS = ['01-01', '02-28', '04-04', '04-05', '05-01', '09-28', '10-10', '10-25', '12-25'];
 export const isHoliday = s => dow(s) === 0 || dow(s) === 6 || FIXED_HOLIDAYS.includes(s.slice(5));
 export function rollDue(s) { while (isHoliday(s)) s = addDays(s, 1); return s; }
+// 到期日落在下一個上班日之前（週末、連假），今天就是最後一次能用 LINE 提醒的日子。
+export const lastChance = (due, today) => due > today && due < rollDue(addDays(today, 1));
 export function prevWork(s) { while (isHoliday(s)) s = addDays(s, -1); return s; }
 /* 每週事項的到期日。有 shift 的事項，遇假日改到同一週 shift 列出的星期。 */
 export function weekDue(t, mon) {
@@ -175,7 +177,7 @@ const byDue = (a, b) => a.o.due.localeCompare(b.o.due) || (+!!b.t.gov - +!!a.t.g
 
 /* 每日 LINE 提醒的內容。規則與舊的每日提醒相同：不列每日、不定期；每週事項只在明天到期時列入快到期。 */
 export function buildReminder(tasks, today, get) {
-  const out = { director: { over: [], today: [], soon: [] }, admin: { over: [], today: [], soon: [] } };
+  const out = { director: { over: [], today: [], last: [], soon: [] }, admin: { over: [], today: [], last: [], soon: [] } };
   const soonIds = [];
   for (const t of tasks) {
     if (t.freq === 'daily' || t.freq === 'adhoc') continue;
@@ -184,6 +186,7 @@ export function buildReminder(tasks, today, get) {
     let b = bucket(t, o, today);
     if (b === 'week') b = diff(o.due, today) === 1 ? 'soon' : null;
     if (b === 'later' || b === 'month') b = null;
+    if (b === 'soon' && lastChance(o.due, today)) b = 'last';
     if (!b) continue;
     out[t.who][b].push({ t, o });
     if (b === 'soon') soonIds.push(t.id + '__' + o.key);
@@ -202,12 +205,13 @@ function item(x, today) {
 
 export function formatReminder(rem, url, today) {
   const c = k => rem.lists.director[k].length + rem.lists.admin[k].length;
-  const sum = [['over', '逾期'], ['today', '今天到期'], ['soon', '快到期']].filter(([k]) => c(k)).map(([k, n]) => `${n} ${c(k)} 件`).join('、');
+  const sum = [['over', '逾期'], ['today', '今天到期'], ['last', '放假期間到期'], ['soon', '快到期']].filter(([k]) => c(k)).map(([k, n]) => `${n} ${c(k)} 件`).join('、');
   const parts = [`📋 待辦提醒 ${md(today)}\n${sum}`];
   for (const who of ['director', 'admin']) {
     const l = rem.lists[who], sec = [];
     if (l.over.length) sec.push('🔴 逾期\n' + l.over.map(x => item(x, today)).join('\n'));
     if (l.today.length) sec.push('🟠 今天到期\n' + l.today.map(x => item(x, today)).join('\n'));
+    if (l.last.length) sec.push('🟠 放假期間到期，今天是最後上班日\n' + l.last.map(x => item(x, today)).join('\n'));
     if (l.soon.length) sec.push('🟡 快到期\n' + l.soon.map(x => item(x, today)).join('\n'));
     if (sec.length) parts.push(`━━ ${WHO[who]} ━━\n` + sec.join('\n\n'));
   }
@@ -217,7 +221,7 @@ export function formatReminder(rem, url, today) {
 
 export function shouldSend(rem, prevSoon = []) {
   const all = Object.values(rem.lists);
-  if (all.some(l => l.over.length || l.today.length)) return true;
+  if (all.some(l => l.over.length || l.today.length || l.last.length)) return true;
   const prev = new Set(prevSoon);
   return rem.soonIds.some(id => !prev.has(id));
 }

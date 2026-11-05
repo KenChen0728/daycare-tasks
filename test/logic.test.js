@@ -1,5 +1,5 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { showDate, nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays, monthOccs, addMonth, followUpTasks, followUpIds, planTasks, keyEnd, termKey, termOf, shiftTerm, pendingLabel, stageOf, needsPick, pickDays, pickDeadline, titleOf, weekDue } from '../logic.js';
+import { showDate, nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays, monthOccs, addMonth, followUpTasks, followUpIds, planTasks, keyEnd, termKey, termOf, shiftTerm, pendingLabel, stageOf, needsPick, pickDays, pickDeadline, titleOf, weekDue, lastChance } from '../logic.js';
 const none = () => undefined;
 const M = { id:'m', who:'admin', freq:'monthly', months:[1,2,3,4,5,6,7,8,9,10,11,12], day:31, lead:7, from:'2026-11-01', title:'月', gov:false };
 const S = { ...M, id:'s', needSend:true, gov:true };
@@ -169,4 +169,10 @@ test('檢查列印：10 號到期，已印出才結案', () => {
   assert.equal(nextOcc(E,'2026-11-05',none).due,'2026-11-10'); assert.equal(bucket(E,nextOcc(E,'2026-11-05',none),'2026-11-05'),'soon');
   assert.equal(nextOcc(E,'2026-11-05',()=>({doneAt:1})).stage,'send'); assert.equal(pendingLabel(E,'send'),'待印出');
   assert.equal(nextOcc(E,'2026-11-05',(i,k)=>k==='2026-11'?{doneAt:1,sentAt:1}:undefined).key,'2026-12');
+});
+
+test('放假前最後上班日：週末到期週五要提醒', () => {
+  assert.equal(lastChance('2027-01-31', '2027-01-29'), true);
+  assert.equal(lastChance('2027-02-01', '2027-01-29'), false);
+  assert.equal(lastChance('2027-01-30', '2027-01-28'), false);
 });

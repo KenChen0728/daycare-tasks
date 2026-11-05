@@ -34,12 +34,30 @@ async function nameOf(email) {
 let myName = '';
 let db, auth, user, tasks = [], recs = new Map(), meta = null, ready = { tasks: false, records: false, quick: false };
 const VIEWS = ['today', 'all', 'cal', 'kpi', 'log', 'set', 'help'];
+const VERSION = '2026.11.05';   // 改版時一起改，設定頁看得到
 const CAL_BARS = 3;   // 日曆每格最多顯示幾件，其餘寫「還有 N 件」
 let helpTopic = '', helpStep = 0, calMonth = '', calSel = '', kpiTerm = '';
 let view = 'today', who = 'all', editing = null, delArmed = false, unsub = [], importData = null;
 try { who = localStorage.getItem('who') || 'all'; } catch (e) {}
 
-function toast(m) { const e = $('toast'); e.textContent = m; e.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => e.hidden = true, 2600); }
+function toast(m, undo) {
+  const e = $('toast'); e.textContent = '';
+  const t = document.createElement('span'); t.textContent = m; e.append(t);
+  if (undo) { const b = document.createElement('button'); b.type = 'button'; b.className = 'undo'; b.textContent = '復原'; b.onclick = () => { e.hidden = true; undo(); }; e.append(b); }
+  e.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => e.hidden = true, undo ? 6000 : 2600);
+}
+// 寫入追蹤：要等雲端確認才算存好。超過 3 秒沒確認就明白告訴使用者，不讓人以為已經存好。
+let saving = 0, slowTimer = null, slowShown = false, netDown = false;
+const NET = { slow: '網路不穩，剛才的動作還沒存好。連上網路後會自動補存，在那之前請不要關掉 App。', down: '現在沒有網路。畫面可能不是最新的，打勾要等連上網路才會存好，在那之前請不要關掉 App。' };
+function netBar() { const e = $('netBar'); const m = slowShown ? NET.slow : netDown ? NET.down : ''; e.textContent = m; e.hidden = !m; }
+function tracked(p) {
+  saving++; if (!slowTimer) slowTimer = setTimeout(() => { slowShown = true; netBar(); }, 3000);
+  const end = () => { if (--saving) return; clearTimeout(slowTimer); slowTimer = null; const was = slowShown; slowShown = false; netBar(); if (was) toast('已經補存好了'); };
+  p.then(end, end); return p;
+}
+const wr = { setDoc: (...a) => tracked(fb.setDoc(...a)), updateDoc: (...a) => tracked(fb.updateDoc(...a)), deleteDoc: (...a) => tracked(fb.deleteDoc(...a)), commit: b => tracked(b.commit()) };
+addEventListener('offline', () => { netDown = true; netBar(); });
+addEventListener('online', () => { netDown = false; netBar(); });
 function setStatus(m) { const e = $('status'); e.textContent = m || ''; e.hidden = !m; }
 const show = t => who === 'all' || t.who === who || !!t.either;
 const showRec = d => who === 'all' || d.who === who || !!(taskOf(d.taskId) || {}).either;
@@ -72,7 +90,8 @@ function pickSelect(t, key) {
   const opts = pickDays(key).map(d => `<option value="${d}"${d === cur ? ' selected' : ''}>${short(d)}（${WZ[dow(d)]}）</option>`).join('');
   return `<label class="pick">${+key.slice(5)} 月核銷日期<select data-pick data-id="${esc(t.id)}" data-key="${esc(key)}"${r && r.sentAt ? ' disabled' : ''}><option value="">請選擇</option>${opts}</select></label>`;
 }
-const row = (t, o, b, now) => `<div class="row${b === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(titleOf(t, o.key))}</div>${pickSelect(t, o.key)}<div class="meta">${pills(t)}${whenText(t, o, b, now)}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`;
+const nextStep = (t, o) => o.stage === 'review' ? `<span class="when-warn">${myName === '主任' ? '請主任覆核' : '等主任覆核'}</span>` : o.stage === 'send' ? `<span class="when-warn">${pendingLabel(t, o.stage)}</span>` : '';
+const row = (t, o, b, now) => `<div class="row${b === 'over' ? ' over' : ''}">${ticks(t, o.key)}<div class="main"><div class="title">${esc(titleOf(t, o.key))}</div>${pickSelect(t, o.key)}<div class="meta">${pills(t)}${nextStep(t, o)}${whenText(t, o, b, now)}${t.note ? `<span>${esc(t.note)}</span>` : ''}</div></div></div>`;
 const section = (title, sub, rows, cls) => rows.length ? `<section><h2 class="${cls || ''}">${title}<small>${sub || rows.length + ' 件'}</small></h2><div class="list">${rows.join('')}</div></section>` : '';
 
 function renderToday() {
@@ -172,23 +191,52 @@ function renderKpi() {
   return head + (term.length || year.length ? a + h + b : '<div class="empty">KPI 事項設定中，請稍後再開一次。</div>');
 }
 function renderSet() {
-  const m = meta ? `${esc(meta.date)}：${esc(meta.sent)}` : '還沒有紀錄';
+  const m = meta ? `${esc(meta.date)} ${hm(meta.at)}：${esc(meta.sent)}` : '還沒有紀錄';
+  const q = meta && meta.limit ? `<div>這個月已經用了 ${esc(meta.used)} 則，上限 ${esc(meta.limit)} 則。</div>` : '';
   return `<section><h2>帳號</h2><div class="card"><div>${esc(user.email)}（${esc(myName)}）</div><div class="actions start"><button class="btn" data-act="changePw">修改密碼</button><button class="btn logout" data-act="logout">登出</button></div></div></section>
-  <section><h2>LINE 每日提醒</h2><div class="card"><div>上次檢查：${m}</div></div></section>
+  <section><h2>LINE 每日提醒</h2><div class="card"><div>上次檢查：${m}</div>${q}</div></section>
   <section><h2>加到桌面與主畫面</h2><div class="card"><div>iPhone：用 Safari 開啟這一頁，點「分享」，再點「加入主畫面」。</div><div>電腦：用 Chrome 或 Edge 開啟，點網址列右側的「安裝」圖示。</div></div></section>
-  <section><h2>資料</h2><div class="card"><div>目前有 ${tasks.length} 件事項。匯入只會新增還沒有的資料，不會覆蓋已存在的事項與打勾紀錄。</div><label>選擇匯入檔<input type="file" id="impFile" accept=".json,application/json"></label><div id="impInfo"></div><div class="actions start"><button class="btn primary" data-act="import" id="impBtn" hidden>確認匯入</button><button class="btn" data-act="backup">下載備份</button></div></div></section>`;
+  <section><h2>資料</h2><div class="card"><div>目前有 ${tasks.length} 件事項。匯入只會新增還沒有的資料，不會覆蓋已存在的事項與打勾紀錄。</div><label>選擇匯入檔<input type="file" id="impFile" accept=".json,application/json"></label><div id="impInfo"></div><div class="actions start"><button class="btn primary" data-act="import" id="impBtn" hidden>確認匯入</button><button class="btn" data-act="backup">下載備份</button></div></div></section>
+  <section><h2>關於</h2><div class="card"><div>版本 ${VERSION}</div><div>遇到問題時，把畫面截圖傳給協助者，並告訴他這個版本號。</div></div></section>`;
 }
 function render() {
   $('date').textContent = rocDate(today());
   document.querySelectorAll('.tab').forEach(b => b.dataset.view === view ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
   document.querySelectorAll('.chip').forEach(b => b.setAttribute('aria-pressed', b.dataset.who === who));
   document.querySelector('.people').hidden = view === 'set' || view === 'help' || view === 'kpi';
+  $('searchWrap').hidden = view !== 'all';
   $('add').hidden = view === 'help';
   if (!ready.tasks || !ready.records || !ready.quick) return;
   const a = renderToday();
   if (view === 'set' && $('impFile')) return;   // 設定頁正在選檔時不重畫
   $('view').innerHTML = view === 'today' ? a : view === 'all' ? renderAll() : view === 'cal' ? renderCal() : view === 'kpi' ? renderKpi() : view === 'log' ? renderLog() : view === 'help' ? renderHelp(helpTopic, helpStep) : renderSet();
+  if (view === 'all') applySearch();
+  lineInfo();
   staleWarning();
+}
+const hm = iso => { try { return iso ? new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso)) : ''; } catch (_) { return ''; } };
+// 今天的 LINE 提醒狀態。沒有事就不發，所以要讓人分得出「沒事」和「沒發出去」。
+function lineInfo() {
+  const e = $('lineInfo'), now = today(), w = dow(now), work = w > 0 && w < 6;
+  let m = '', bad = false;
+  if (meta && meta.failDate === now && meta.date !== now) { m = `今天的 LINE 提醒沒有發出去（${esc(meta.fail)}）。請先看這一頁，並告訴協助者。`; bad = true; }
+  else if (meta && meta.date === now) m = meta.sentAt && hm(meta.sentAt) && new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date(meta.sentAt)) === now ? `LINE 提醒：今天 ${hm(meta.sentAt)} 已發送` : `LINE 提醒：今天 ${hm(meta.at)} 檢查過，沒有要提醒的事`;
+  else if (meta && work) { if (hm(new Date().toISOString()) >= '11:30') { m = '今天的 LINE 提醒到現在還沒有發出來。請先看這一頁，並告訴協助者。'; bad = true; } else m = 'LINE 提醒：今天約 8 點、10 點發送'; }
+  e.innerHTML = m; e.hidden = !m || view !== 'today'; e.classList.toggle('bad', bad);
+}
+// 全部事項的搜尋：只把不符合的列藏起來，不動資料。
+function applySearch() {
+  const q = $('allSearch').value.trim().toLowerCase(); let any = false;
+  document.querySelectorAll('#view section').forEach(s => {
+    let n = 0;
+    s.querySelectorAll('.row').forEach(r => { const hit = !q || r.textContent.toLowerCase().includes(q); r.hidden = !hit; if (hit) n++; });
+    const c = s.querySelector('h2 small'); if (c && /件$/.test(c.textContent)) c.textContent = n + ' 件';
+    s.hidden = !n; if (n) any = true;
+  });
+  document.querySelectorAll('#view .actions.start').forEach(a => a.hidden = !!q);
+  let none = $('allNone');
+  if (q && !any) { if (!none) { none = document.createElement('div'); none.id = 'allNone'; none.className = 'empty'; $('view').prepend(none); } none.textContent = `找不到「${q}」。可以換個詞，或按右下角新增。`; }
+  else if (none) none.remove();
 }
 function staleWarning() {
   if (!meta) return;
@@ -202,13 +250,13 @@ function setView(v, push) { view = VIEWS.includes(v) ? v : 'today'; if (view ===
 async function addFollowUp(t, key, r, stage, s) {
   const had = !!(r && r.doneAt), when = on => on === 'sent' ? stage === 'sent' : !had;
   const list = followUpTasks(t, key, s.date, when).filter(f => !taskOf(f.id)); if (!list.length) return '';
-  const b = fb.writeBatch(db); list.forEach(f => b.set(fb.doc(db, 'tasks', f.id), f)); await b.commit();
+  const b = fb.writeBatch(db); list.forEach(f => b.set(fb.doc(db, 'tasks', f.id), f)); await wr.commit(b);
   return list.map(f => `「${f.title}」`).join('、') + `，${short(list[0].date)} 前完成`;
 }
 // 取消完成時，後續事項還沒動過才一起移除。
 async function dropFollowUp(t, key, when) {
   const ids = followUpIds(t, key, when).filter(id => taskOf(id) && !getRec(id, 'once'));
-  await Promise.all(ids.map(id => fb.deleteDoc(fb.doc(db, 'tasks', id)))); return ids.length > 0;
+  await Promise.all(ids.map(id => wr.deleteDoc(fb.doc(db, 'tasks', id)))); return ids.length > 0;
 }
 const refOf = (t, key) => fb.doc(db, collectionFor(t), recordId(t.id, key));
 const stamp = () => ({ by: myName, at: new Date().toISOString(), date: today() });
@@ -217,12 +265,12 @@ async function act(a, id, key) {
   const ref = refOf(t, key), s = stamp(), r = getRec(id, key);
   const name = titleOf(t, key), base = { taskId: id, key, title: name, who: t.who };
   try {
-    if (a === 'done') { await fb.setDoc(ref, { ...base, doneAt: s.at, doneBy: s.by, doneDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, 'done', s); toast(fu ? `已完成，已新增${fu}` : t.review ? '已完成，請主任覆核：' + name : t.needSend ? `已完成，記得${sendLabel(t).slice(1)}：` + name : '已完成：' + name); }
-    if (a === 'review') { await fb.setDoc(ref, { reviewAt: s.at, reviewBy: s.by, reviewDate: s.date }, { merge: true }); toast('已覆核，可以送件了：' + name); }
-    if (a === 'undoReview') { await fb.updateDoc(ref, { reviewAt: fb.deleteField(), reviewBy: fb.deleteField(), reviewDate: fb.deleteField() }); toast('已取消覆核'); }
-    if (a === 'sent') { await fb.setDoc(ref, { ...base, ...(r && r.doneAt ? {} : { doneAt: s.at, doneBy: s.by, doneDate: s.date }), sentAt: s.at, sentBy: s.by, sentDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, 'sent', s); toast(fu ? `${sendLabel(t)}，已新增${fu}` : `${sendLabel(t)}，結案：` + name); }
-    if (a === 'undoSent') { await fb.updateDoc(ref, { sentAt: fb.deleteField(), sentBy: fb.deleteField(), sentDate: fb.deleteField() }); await dropFollowUp(t, key, on => on === 'sent'); toast('已取消' + sendLabel(t).slice(1)); }
-    if (a === 'undoDone') { await fb.deleteDoc(ref); toast(await dropFollowUp(t, key) ? '已取消完成，自動新增的事項也移除了' : '已取消完成'); }
+    if (a === 'done') { await wr.setDoc(ref, { ...base, doneAt: s.at, doneBy: s.by, doneDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, 'done', s); toast(fu ? `已完成，已新增${fu}` : t.review ? '已完成，請主任覆核：' + name : t.needSend ? `已完成，記得${sendLabel(t).slice(1)}：` + name : '已完成：' + name, () => act('undoDone', id, key)); }
+    if (a === 'review') { await wr.setDoc(ref, { reviewAt: s.at, reviewBy: s.by, reviewDate: s.date }, { merge: true }); toast('已覆核，可以送件了：' + name, () => act('undoReview', id, key)); }
+    if (a === 'undoReview') { await wr.updateDoc(ref, { reviewAt: fb.deleteField(), reviewBy: fb.deleteField(), reviewDate: fb.deleteField() }); toast('已取消覆核'); }
+    if (a === 'sent') { await wr.setDoc(ref, { ...base, ...(r && r.doneAt ? {} : { doneAt: s.at, doneBy: s.by, doneDate: s.date }), sentAt: s.at, sentBy: s.by, sentDate: s.date }, { merge: true }); const fu = await addFollowUp(t, key, r, 'sent', s); toast(fu ? `${sendLabel(t)}，已新增${fu}` : `${sendLabel(t)}，結案：` + name, () => act('undoSent', id, key)); }
+    if (a === 'undoSent') { await wr.updateDoc(ref, { sentAt: fb.deleteField(), sentBy: fb.deleteField(), sentDate: fb.deleteField() }); await dropFollowUp(t, key, on => on === 'sent'); toast('已取消' + sendLabel(t).slice(1)); }
+    if (a === 'undoDone') { await wr.deleteDoc(ref); toast(await dropFollowUp(t, key) ? '已取消完成，自動新增的事項也移除了' : '已取消完成'); }
   } catch (e) { console.error(e); toast('沒有存到，請再按一次。'); }
 }
 
@@ -243,7 +291,9 @@ function openForm(t) {
   document.querySelectorAll('#mgrid input').forEach(c => c.checked = !!(t && (t.months || []).includes(+c.value)));
   syncForm(); $('dlg').showModal();
 }
+let savingForm = false;
 async function save() {
+  if (savingForm) return;
   const freq = $('fFreq').value, months = [...document.querySelectorAll('#mgrid input:checked')].map(c => +c.value);
   if (freq === 'months' && !months.length) return toast('請至少選一個月份。');
   const old = editing, title = $('fTitle').value.trim(); if (!title) return;
@@ -255,11 +305,12 @@ async function save() {
   if (freq === 'once') data.date = $('fDate').value;
   if (freq === 'weekly') data.weekday = +$('fWeekday').value;
   const ref = old ? fb.doc(db, 'tasks', old.id) : fb.doc(fb.collection(db, 'tasks'));
-  try { await fb.setDoc(ref, { ...data, id: ref.id }); $('dlg').close(); toast('已儲存'); } catch (e) { console.error(e); toast('沒有存到，請再按一次。'); }
+  const sv = $('frm').querySelector('[type=submit]'); savingForm = true; sv.disabled = true; sv.textContent = '儲存中…';
+  try { await wr.setDoc(ref, { ...data, id: ref.id }); $('dlg').close(); toast('已儲存'); } catch (e) { console.error(e); toast('沒有存到，請再按一次。'); } finally { savingForm = false; sv.disabled = false; sv.textContent = '儲存'; }
 }
 async function remove() {
   if (!delArmed) { delArmed = true; $('del').textContent = '確定刪除？'; return; }
-  try { await fb.deleteDoc(fb.doc(db, 'tasks', editing.id)); $('dlg').close(); toast('已刪除'); } catch (e) { toast('沒有刪除成功，請再試一次。'); }
+  try { await wr.deleteDoc(fb.doc(db, 'tasks', editing.id)); $('dlg').close(); toast('已刪除'); } catch (e) { toast('沒有刪除成功，請再試一次。'); }
 }
 
 // 自辦研習計畫：填一次產生後續事項；之後從計畫改日期或取消，還沒結案的事項會一起更新。
@@ -272,7 +323,9 @@ function openPlan(t) {
 }
 const untouched = id => taskOf(id) && !getRec(id, 'once');
 const planIds = p => { const [, gov] = planTasks(p, today()); return [p.id, gov.id, p.id + '-report', ...followUpIds(gov, 'once')]; };
+let savingPlan = false;
 async function savePlan() {
+  if (savingPlan) return;
   const start = $('pStart').value, end = $('pEnd').value || start;
   if (end < start) return toast('結束日期不能早於課程日期。');
   const p = { id: planEdit ? planEdit.planData.id : 'plan-' + Date.now(), name: $('pName').value.trim(), deadline: $('pDeadline').value, start, end, time: $('pTime').value.trim() };
@@ -282,13 +335,14 @@ async function savePlan() {
     const gov = list[1], sign = followUpIds(gov, 'once')[0], [f] = gov.followUps;
     if (untouched(sign)) b.set(fb.doc(db, 'tasks', sign), { date: f.date > today() ? f.date : today(), note: f.note }, { merge: true });
   }
-  try { await b.commit(); $('planDlg').close(); toast(planEdit ? '已更新，還沒結案的事項都改好了' : '已生成，核備縣府會在課程前兩週出現'); } catch (e) { console.error(e); toast('沒有存到，請再按一次。'); }
+  savingPlan = true;
+  try { await wr.commit(b); $('planDlg').close(); toast(planEdit ? '已更新，還沒結案的事項都改好了' : '已生成，核備縣府會在課程前兩週出現'); } catch (e) { console.error(e); toast('沒有存到，請再按一次。'); } finally { savingPlan = false; }
 }
 async function removePlan() {
   if (!planDel) { planDel = true; $('planDel').textContent = '確定取消？'; return; }
   const ids = planIds(planEdit.planData).filter(untouched), b = fb.writeBatch(db);
   ids.forEach(id => b.delete(fb.doc(db, 'tasks', id)));
-  try { await b.commit(); $('planDlg').close(); toast('已取消，已完成的事項會留著'); } catch (e) { toast('沒有取消成功，請再試一次。'); }
+  try { await wr.commit(b); $('planDlg').close(); toast('已取消，已完成的事項會留著'); } catch (e) { toast('沒有取消成功，請再試一次。'); }
 }
 
 function openPw() { $('pwForm').reset(); $('pwUser').value = user.email; $('pwMsg').textContent = ''; $('pwDlg').showModal(); }
@@ -421,6 +475,8 @@ function enter() {
 }
 function localStorageHasWho() { try { return !!localStorage.getItem('who'); } catch (e) { return false; } }
 
+let tickUntil = 0;
+const TICKS = ['done', 'undoDone', 'review', 'undoReview', 'sent', 'undoSent'];
 document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.view) return setView(b.dataset.view, true);
@@ -447,12 +503,14 @@ document.addEventListener('click', e => {
   if (a === 'changePw') return openPw();
   if (a === 'import') return doImport();
   if (a === 'backup') return backup();
+  // 打勾後清單會往上補，第二下會按到下一件。0.7 秒內的第二下不算。
+  if (TICKS.includes(a)) { if (e.timeStamp < tickUntil) return; tickUntil = e.timeStamp + 700; }
   act(a, b.dataset.id, b.dataset.key);
 });
 document.addEventListener('change', async e => {
   if (e.target.matches('select[data-pick]')) {
     const { id, key } = e.target.dataset, d = e.target.value;
-    try { await fb.setDoc(fb.doc(db, 'tasks', id), { picks: { [key]: d } }, { merge: true }); toast(d ? `截止日是 ${short(pickDeadline(d))}` : '已清除日期'); } catch (err) { console.error(err); toast('沒有存到，請再選一次。'); }
+    try { await wr.setDoc(fb.doc(db, 'tasks', id), { picks: { [key]: d } }, { merge: true }); toast(d ? `截止日是 ${short(pickDeadline(d))}` : '已清除日期'); } catch (err) { console.error(err); toast('沒有存到，請再選一次。'); }
     return;
   }
   if (e.target.id !== 'impFile') return;
@@ -466,6 +524,8 @@ document.addEventListener('change', async e => {
 $('pwCancel').onclick = () => $('pwDlg').close();
 $('pwForm').addEventListener('submit', e => { e.preventDefault(); changePw(); });
 $('add').onclick = () => openForm();
+$('allSearch').addEventListener('input', applySearch);
+if (/\bLine\//i.test(navigator.userAgent) && $('lineHint')) $('lineHint').hidden = false;
 $('toPlan').onclick = () => { $('dlg').close(); openPlan(); };
 $('planCancel').onclick = () => $('planDlg').close(); $('planDel').onclick = removePlan;
 $('planForm').addEventListener('submit', e => { e.preventDefault(); savePlan(); });
