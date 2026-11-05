@@ -155,3 +155,10 @@ test('歸檔最後 7 天、身高體重 20 號起才提醒', () => {
   const r=buildReminder([F,H],'2026-11-24',none); assert.equal(r.lists.admin.soon.length,2); assert.equal(shouldSend(r,[]),true);
   assert.equal(monthOccs(F,2026,11,none)[0].due,'2026-11-30');   // 日曆照舊
 });
+
+test('月初事項 1 號起才提醒，5 號到期', () => {
+  const E={...M,day:5,showFrom:1}, g=(i,k)=>k==='2026-11'?{doneAt:'x'}:undefined;
+  assert.equal(nextOcc(E,'2026-11-05',none).due,'2026-11-05'); assert.equal(bucket(E,nextOcc(E,'2026-11-05',none),'2026-11-05'),'today');
+  const at=d=>bucket(E,nextOcc(E,d,g),d);
+  assert.equal(at('2026-11-20'),'later'); assert.equal(at('2026-11-30'),'later'); assert.equal(at('2026-12-01'),'soon'); assert.equal(at('2026-12-05'),'today'); assert.equal(at('2026-12-07'),'over');
+});

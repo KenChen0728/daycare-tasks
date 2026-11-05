@@ -248,7 +248,7 @@ async function save() {
   if (freq === 'months' && !months.length) return toast('請至少選一個月份。');
   const old = editing, title = $('fTitle').value.trim(); if (!title) return;
   const group = freq === 'months' ? (old && old.freq === 'months' ? old.group : (months.length === 1 ? '每年' : '每季')) : GMAP[freq];
-  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData', 'pick', 'picks', 'review', 'vouchers', 'monthTitle', 'rollBack', 'shift', 'showFrom', 'showLast'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
+  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData', 'pick', 'picks', 'review', 'vouchers', 'monthTitle', 'rollBack', 'shift', 'showFrom', 'showLast', 'rules1105'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
   const data = { ...keep, who: $('fWho').value, group, freq, title, months: freq === 'monthly' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : freq === 'months' ? months : [],
     day: +$('fDay').value || 31, lead: +$('fLead').value || 0, gov: $('fGov').checked, verify: $('fVerify').checked, note: $('fNote').value.trim(),
     needSend: freq !== 'daily' && freq !== 'adhoc' && $('fSend').checked, rollover: (freq === 'monthly' || freq === 'months') && $('fRoll').checked, from: old ? old.from : today(), order: old ? old.order : Date.now() };
@@ -331,6 +331,8 @@ const AFTER = { 'kpi-meeting': after('親師座談會', '親師座談會活動�
 const NEW_KPI = [['kpi-meeting', '親師座談會', 'term', 1], ['kpi-family', '親子活動', 'term', 2], ['kpi-parenting', '親職講座', 'term', 3], ['kpi-community', '社區宣導', 'year', 5]];
 const HALF = { kpi: 'half', group: '每半年', months: [6, 12], day: 31, lead: 60, from: '2026-08-01', order: 4, followUps: [{ ...SHARED, title: '滿意度成果報告書' }] };
 const VOUCHER = { who: 'admin', either: true, group: '每月', freq: 'monthly', months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], day: 31, lead: 0, from: '2026-11-01', note: '', gov: false, verify: false, needSend: true, sendLabel: '已送件', rollover: false, pick: true, picks: {}, review: true };
+const EARLY = ['幼兒適性／總表／節氣檢查列印', '托育人員週計畫檢查列印', '候補名單統整'];
+const LATE = ['製作月費收據／月費袋發回', '生長曲線發展異常單（追蹤托育人員）', '發展篩檢異常單（追蹤托育人員）', '意外事故單彙整', '生活自立能力表追蹤（如廁／刷牙／吃飯）'];
 let upgrading = false;
 async function upgradeData() {
   if (upgrading) return;
@@ -359,6 +361,17 @@ async function upgradeData() {
   for (const t of tasks.filter(x => x.freq === 'monthly')) {
     if (t.title.includes('歸檔') && !t.showLast) put(t.id, { showLast: 7 }, true);
     if (t.title.includes('身高體重') && !t.showFrom) put(t.id, { showFrom: 20 }, true);
+  }
+  // 2026-11-05 調整：只做一次，標記記在既有事項上，之後再改不會被改回來。
+  const keepTask = tasks.find(t => t.title !== '製作憑證');
+  if (keepTask && !tasks.some(t => t.rules1105)) {
+    put(keepTask.id, { rules1105: true }, true);
+    for (const t of tasks) {
+      if (t.title === '製作憑證') { b.delete(fb.doc(db, 'tasks', t.id)); n++; }
+      else if (t.title === '消防設備檢查表') put(t.id, { freq: 'daily', group: '每日', months: [] }, true);
+      else if (EARLY.includes(t.title)) put(t.id, { day: 5, showFrom: 1 }, true);
+      else if (LATE.includes(t.title)) put(t.id, { showLast: 7 }, true);
+    }
   }
   if (!n) return;
   upgrading = true;
