@@ -158,12 +158,14 @@ export function monthOccs(t, y, m, get) {
 }
 
 /* 集中在月底或月中後才做的事項，這天以前不出現在「今天」頁和 LINE。showLast：最後幾天；showFrom：幾號起。 */
-export const showDate = (t, due) => t.showLast ? addDays(due, 1 - t.showLast) : t.showFrom ? due.slice(0, 8) + pad(t.showFrom) : '';
+export const prevMonth = key => { const y = +key.slice(0, 4), m = +key.slice(5, 7); return m === 1 ? (y - 1) + '-12' : y + '-' + pad(m - 1); };
+// showPrev：前一個月的幾號起，給月初到期、前一個月底要做好的事項。
+export const showDate = (t, due, key) => t.showPrev ? prevMonth(key) + '-' + pad(t.showPrev) : t.showLast ? addDays(due, 1 - t.showLast) : t.showFrom ? due.slice(0, 8) + pad(t.showFrom) : '';
 
 export function bucket(t, o, today) {
   const d = diff(o.due, today);
   if (d < 0) return 'over';
-  if (today < showDate(t, o.due) && d > 0) return 'later';
+  if (today < showDate(t, o.due, o.key) && d > 0) return 'later';
   if (t.freq === 'daily' || d === 0) return 'today';
   if (t.freq === 'weekly') return 'week';
   // 到期前一個月起放「本月待辦事項」，最後 7 天放「快到期」。自辦研習照計畫算出的日子出現；核備縣府照舊，課程前兩週就算快到期。
