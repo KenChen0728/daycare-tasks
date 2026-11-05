@@ -163,3 +163,10 @@ test('月初事項 1 號起才提醒，5 號到期', () => {
   const at=d=>bucket(E,nextOcc(E,d,g),d);
   assert.equal(at('2026-11-20'),'later'); assert.equal(at('2026-11-30'),'later'); assert.equal(at('2026-12-01'),'soon'); assert.equal(at('2026-12-05'),'today'); assert.equal(at('2026-12-07'),'over');
 });
+
+test('檢查列印：10 號到期，已印出才結案', () => {
+  const E={...M,day:10,showFrom:1,needSend:true,sendLabel:'已印出'};
+  assert.equal(nextOcc(E,'2026-11-05',none).due,'2026-11-10'); assert.equal(bucket(E,nextOcc(E,'2026-11-05',none),'2026-11-05'),'soon');
+  assert.equal(nextOcc(E,'2026-11-05',()=>({doneAt:1})).stage,'send'); assert.equal(pendingLabel(E,'send'),'待印出');
+  assert.equal(nextOcc(E,'2026-11-05',(i,k)=>k==='2026-11'?{doneAt:1,sentAt:1}:undefined).key,'2026-12');
+});

@@ -248,7 +248,7 @@ async function save() {
   if (freq === 'months' && !months.length) return toast('請至少選一個月份。');
   const old = editing, title = $('fTitle').value.trim(); if (!title) return;
   const group = freq === 'months' ? (old && old.freq === 'months' ? old.group : (months.length === 1 ? '每年' : '每季')) : GMAP[freq];
-  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData', 'pick', 'picks', 'review', 'vouchers', 'monthTitle', 'rollBack', 'shift', 'showFrom', 'showLast', 'rules1105', 'rules1105b'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
+  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData', 'pick', 'picks', 'review', 'vouchers', 'monthTitle', 'rollBack', 'shift', 'showFrom', 'showLast', 'rules1105', 'rules1105b', 'rules1105c'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
   const data = { ...keep, who: $('fWho').value, group, freq, title, months: freq === 'monthly' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : freq === 'months' ? months : [],
     day: +$('fDay').value || 31, lead: +$('fLead').value || 0, gov: $('fGov').checked, verify: $('fVerify').checked, note: $('fNote').value.trim(),
     needSend: freq !== 'daily' && freq !== 'adhoc' && $('fSend').checked, rollover: (freq === 'monthly' || freq === 'months') && $('fRoll').checked, from: old ? old.from : today(), order: old ? old.order : Date.now() };
@@ -378,6 +378,11 @@ async function upgradeData() {
     put(keepTask.id, { rules1105b: true }, true);
     const c = tasks.find(t => t.title === '候補名單統整');
     if (c) put(c.id, { day: 31, showLast: 7, showFrom: fb.deleteField() }, true);
+  }
+  // 檢查列印兩件：10 號前檢查，檢查完還要按「已印出」才結案。
+  if (keepTask && !tasks.some(t => t.rules1105c)) {
+    put(keepTask.id, { rules1105c: true }, true);
+    for (const t of tasks) if (EARLY.includes(t.title)) put(t.id, { day: 10, showFrom: 1, needSend: true, sendLabel: '已印出' }, true);
   }
   if (!n) return;
   upgrading = true;
