@@ -76,7 +76,7 @@ const row = (t, o, b, now) => `<div class="row${b === 'over' ? ' over' : ''}">${
 const section = (title, sub, rows, cls) => rows.length ? `<section><h2 class="${cls || ''}">${title}<small>${sub || rows.length + ' 件'}</small></h2><div class="list">${rows.join('')}</div></section>` : '';
 
 function renderToday() {
-  const now = today(), b = { over: [], today: [], week: [], soon: [], send: [] };
+  const now = today(), b = { over: [], today: [], week: [], soon: [], month: [], send: [] };
   for (const t of tasks.filter(show)) {
     const o = nextOcc(t, now, getRec); if (!o) continue;
     const k = bucket(t, o, now);
@@ -87,9 +87,9 @@ function renderToday() {
   const r = k => b[k].map(x => row(x.t, x.o, x.k, now));
   const fin = [...recs.values()].filter(d => (d.doneDate === now || d.sentDate === now) && showRec(d)).filter(d => { const t = taskOf(d.taskId); return !t || stageOf(t, d) === 'todo'; })
     .map(d => { const t = taskOf(d.taskId) || { id: d.taskId, title: d.title, who: d.who }; return `<div class="row">${ticks(t, d.key)}<div class="main"><div class="title">${esc(d.title)}</div><div class="meta"><span class="pill p-${esc(d.who)}">${WHO[d.who] || ''}</span></div></div></div>`; });
-  const open = b.over.length + b.today.length + b.week.length + b.soon.length + b.send.length;
-  $('tally').innerHTML = `${b.over.length ? `<span class="bad">逾期 <b>${b.over.length}</b></span>` : ''}<span>今天 <b>${b.today.length}</b></span><span>本週 <b>${b.week.length}</b></span><span class="warn">快到期 <b>${b.soon.length}</b></span><span>待送出 <b>${b.send.length}</b></span>`;
-  return (open ? '' : '<div class="empty">目前沒有要處理的事項。</div>') + section('已完成、還沒結案', '最後一個勾打完才算結案', r('send')) + section('已逾期', '', r('over'), 'bad') + section('今天要做', '', r('today')) + section('本週要做', '', r('week')) + section('快到期', '', r('soon')) + section('今天已處理', '再按一次可取消', fin);
+  const open = b.over.length + b.today.length + b.week.length + b.soon.length + b.month.length + b.send.length;
+  $('tally').innerHTML = `${b.over.length ? `<span class="bad">逾期 <b>${b.over.length}</b></span>` : ''}<span>今天 <b>${b.today.length}</b></span><span>本週 <b>${b.week.length}</b></span><span class="warn">快到期 <b>${b.soon.length}</b></span><span>本月 <b>${b.month.length}</b></span><span>待送出 <b>${b.send.length}</b></span>`;
+  return (open ? '' : '<div class="empty">目前沒有要處理的事項。</div>') + section('已完成、還沒結案', '最後一個勾打完才算結案', r('send')) + section('已逾期', '', r('over'), 'bad') + section('今天要做', '', r('today')) + section('本週要做', '', r('week')) + section('快到期', '截止前 7 天內', r('soon')) + section('本月待辦事項', '', r('month')) + section('今天已處理', '再按一次可取消', fin);
 }
 function renderAll() {
   const now = today(); let h = '<div class="actions start"><button class="btn primary" data-act="planNew">＋ 自辦研習計畫生成</button></div>';

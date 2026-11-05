@@ -164,9 +164,11 @@ export function bucket(t, o, today) {
   if (today < showDate(t, o.due) && d > 0) return 'later';
   if (t.freq === 'daily' || d === 0) return 'today';
   if (t.freq === 'weekly') return 'week';
-  // 一律到期前一個月開始提醒。自辦研習照計畫算出的日子出現（核備課程前兩週、成果報告課程結束後）。
-  const soon = t.plan ? d <= (t.lead || 0) : o.due <= addMonth(today);
-  return soon ? 'soon' : 'later';
+  // 到期前一個月起放「本月待辦事項」，最後 7 天放「快到期」。自辦研習照計畫算出的日子出現；核備縣府照舊，課程前兩週就算快到期。
+  if (t.plan ? d > (t.lead || 0) : o.due > addMonth(today)) return 'later';
+  // 核銷還沒選日期時不知道真正的截止日，放快到期，LINE 才會提醒去選。
+  if (needsPick(t, o.key)) return 'soon';
+  return d <= (t.plan && t.gov ? t.lead || 0 : 7) ? 'soon' : 'month';
 }
 
 const byDue = (a, b) => a.o.due.localeCompare(b.o.due) || (+!!b.t.gov - +!!a.t.gov) || (a.t.order || 0) - (b.t.order || 0);
@@ -181,7 +183,7 @@ export function buildReminder(tasks, today, get) {
     if (!o || !out[t.who]) continue;
     let b = bucket(t, o, today);
     if (b === 'week') b = diff(o.due, today) === 1 ? 'soon' : null;
-    if (b === 'later') b = null;
+    if (b === 'later' || b === 'month') b = null;
     if (!b) continue;
     out[t.who][b].push({ t, o });
     if (b === 'soon') soonIds.push(t.id + '__' + o.key);

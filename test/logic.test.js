@@ -75,7 +75,7 @@ test('自辦研習：事項在對的日子出現', () => {
   assert.equal(bucket(gov,nextOcc(gov,'2027-04-05',none),'2027-04-05'),'later');
   assert.equal(bucket(gov,nextOcc(gov,'2027-04-06',none),'2027-04-06'),'soon');
   assert.equal(bucket(rpt,nextOcc(rpt,'2027-04-21',none),'2027-04-21'),'later');
-  assert.equal(bucket(rpt,nextOcc(rpt,'2027-04-22',none),'2027-04-22'),'soon'); assert.equal(rpt.date,'2027-05-22');
+  assert.equal(bucket(rpt,nextOcc(rpt,'2027-04-22',none),'2027-04-22'),'month'); assert.equal(rpt.date,'2027-05-22');
   const sent=on=>on==='sent';
   assert.deepEqual(followUpTasks(gov,'once','2027-04-08',on=>on!=='sent'),[]);
   const [s]=followUpTasks(gov,'once','2027-04-08',sent); assert.equal(s.title,'簽到表製作'); assert.equal(s.date,'2027-04-19'); assert.equal(s.either,true); assert.equal(s.plan,'p');
@@ -87,13 +87,14 @@ test('自辦研習：課程很近時從今天開始', () => {
   assert.equal(bucket(gov,nextOcc(gov,'2027-04-05',none),'2027-04-05'),'soon');
   const [,g2]=planTasks({id:'p',deadline:'2027-04-01',start:'2027-04-05',end:'2027-04-05'},'2027-04-05'); assert.equal(g2.date,'2027-04-05');
 });
-test('到期前一個月才進快到期', () => {
+test('到期前一個月進本月待辦，最後 7 天進快到期', () => {
   const T={id:'t',who:'director',freq:'once',date:'2026-12-31',lead:60,title:'一次'}, o={key:'once',due:T.date,stage:'todo'};
-  assert.equal(bucket(T,o,'2026-11-30'),'later'); assert.equal(bucket(T,o,'2026-12-01'),'soon');
-  assert.equal(bucket({...T,lead:3},o,'2026-12-01'),'soon');
+  assert.equal(bucket(T,o,'2026-11-30'),'later'); assert.equal(bucket(T,o,'2026-12-01'),'month'); assert.equal(bucket(T,o,'2026-12-23'),'month'); assert.equal(bucket(T,o,'2026-12-24'),'soon');
+  assert.equal(bucket({...T,lead:3},o,'2026-12-01'),'month');
+  assert.equal(buildReminder([T],'2026-12-23',none).lists.director.soon.length,0); assert.equal(buildReminder([T],'2026-12-24',none).lists.director.soon.length,1);
   const K={...T,freq:'months',months:[1,7],day:31,from:'2026-08-01'};
   assert.equal(buildReminder([K],'2026-11-03',none).lists.director.soon.length,0);
-  assert.equal(bucket(K,{key:'2027-01',due:'2027-01-31',stage:'todo'},'2026-12-31'),'soon');
+  assert.equal(bucket(K,{key:'2027-01',due:'2027-01-31',stage:'todo'},'2026-12-31'),'month');
 });
 test('自辦研習照計畫的日子出現', () => {
   const P=planTasks({id:'p',deadline:'2026-12-01',start:'2027-03-10',end:'2027-03-10',time:'',name:''},'2026-11-03'), g=P.find(t=>t.id==='p-gov'), o={key:'once',due:g.date,stage:'todo'};
@@ -128,7 +129,7 @@ test('核銷截止日遇假日提前', () => {
 test('薪資、排班：寫月份，1 號到期，遇假日提前', () => {
   const P={id:'p',who:'director',freq:'monthly',months:[1,2,3,4,5,6,7,8,9,10,11,12],day:1,from:'2026-11-02',title:'薪資製作',monthTitle:true,rollBack:true};
   const o=nextOcc(P,'2026-11-04',none); assert.equal(o.key,'2026-12'); assert.equal(o.due,'2026-12-01'); assert.equal(titleOf(P,o.key),'12月薪資製作');
-  assert.equal(bucket(P,o,'2026-11-04'),'soon');
+  assert.equal(bucket(P,o,'2026-11-04'),'month');
   const g=(i,k)=>k==='2026-12'?{doneAt:1}:undefined, j=nextOcc(P,'2026-12-02',g); assert.equal(titleOf(P,j.key),'1月薪資製作'); assert.equal(j.due,'2026-12-31');   // 1/1 假日
   assert.equal(nextOcc(P,'2027-07-20',(i,k)=>k<'2027-08'?{doneAt:1}:undefined).due,'2027-07-30');   // 8/1 週日
   assert.equal(monthOccs(P,2027,7,none).find(x=>x.key==='2027-08').due,'2027-07-30');
@@ -149,7 +150,7 @@ test('歸檔最後 7 天、身高體重 20 號起才提醒', () => {
   assert.equal(showDate(F,'2026-11-30'),'2026-11-24'); assert.equal(showDate(F,'2027-02-28'),'2027-02-22'); assert.equal(showDate(H,'2026-11-30'),'2026-11-20'); assert.equal(showDate(M,'2026-11-30'),'');
   const at=(t,d)=>bucket(t,nextOcc(t,d,none),d);
   assert.equal(at(F,'2026-11-05'),'later'); assert.equal(at(F,'2026-11-23'),'later'); assert.equal(at(F,'2026-11-24'),'soon'); assert.equal(at(F,'2026-11-30'),'today');
-  assert.equal(at(H,'2026-11-19'),'later'); assert.equal(at(H,'2026-11-20'),'soon'); assert.equal(at(M,'2026-11-05'),'soon');
+  assert.equal(at(H,'2026-11-19'),'later'); assert.equal(at(H,'2026-11-20'),'month'); assert.equal(at(H,'2026-11-24'),'soon'); assert.equal(at(M,'2026-11-05'),'month');
   assert.equal(at(F,'2026-12-05'),'over');   // 上個月沒做仍算逾期
   assert.equal(buildReminder([F,H],'2026-11-19',none).lists.admin.soon.length,0);
   const r=buildReminder([F,H],'2026-11-24',none); assert.equal(r.lists.admin.soon.length,2); assert.equal(shouldSend(r,[]),true);
