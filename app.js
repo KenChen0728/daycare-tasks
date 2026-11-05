@@ -20,7 +20,7 @@ function ruleText(t) {
   if (t.freq === 'adhoc') return '有需要時';
   if (t.freq === 'once') return '只做一次';
   const end = (t.day || 31) >= 31 ? '月底' : t.day + ' 號';
-  const roll = t.rollover ? '，遇假日順延' : '';
+  const roll = (t.rollover ? '，遇假日順延' : '') + (t.showLast ? `，最後 ${t.showLast} 天才提醒` : t.showFrom ? `，${t.showFrom} 號起提醒` : '');
   if (t.freq === 'monthly') return '每月' + ((t.day || 31) >= 31 ? '底' : ' ' + t.day + ' 號') + roll;
   return (t.months || []).map(m => MZ[m] + '月').join('、') + '（' + end + '）' + roll;
 }
@@ -248,7 +248,7 @@ async function save() {
   if (freq === 'months' && !months.length) return toast('請至少選一個月份。');
   const old = editing, title = $('fTitle').value.trim(); if (!title) return;
   const group = freq === 'months' ? (old && old.freq === 'months' ? old.group : (months.length === 1 ? '每年' : '每季')) : GMAP[freq];
-  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData', 'pick', 'picks', 'review', 'vouchers', 'monthTitle', 'rollBack', 'shift'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
+  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData', 'pick', 'picks', 'review', 'vouchers', 'monthTitle', 'rollBack', 'shift', 'showFrom', 'showLast'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
   const data = { ...keep, who: $('fWho').value, group, freq, title, months: freq === 'monthly' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : freq === 'months' ? months : [],
     day: +$('fDay').value || 31, lead: +$('fLead').value || 0, gov: $('fGov').checked, verify: $('fVerify').checked, note: $('fNote').value.trim(),
     needSend: freq !== 'daily' && freq !== 'adhoc' && $('fSend').checked, rollover: (freq === 'monthly' || freq === 'months') && $('fRoll').checked, from: old ? old.from : today(), order: old ? old.order : Date.now() };
@@ -354,6 +354,11 @@ async function upgradeData() {
     put(den.id, { title: '登革熱場域巡檢表（週二）', weekday: 2, shift: [1, 3, 5] }, true);
     const id = den.id + '-thu', { order, ...d } = den;
     put(id, { ...d, id, title: '登革熱場域巡檢表（週四）', weekday: 4, shift: [5, 3, 1], from: '2026-11-02', order: (order || 0) + .5 });
+  }
+  // 歸檔類月底最後 7 天才提醒；量身高體重月中後才量，20 號起提醒。
+  for (const t of tasks.filter(x => x.freq === 'monthly')) {
+    if (t.title.includes('歸檔') && !t.showLast) put(t.id, { showLast: 7 }, true);
+    if (t.title.includes('身高體重') && !t.showFrom) put(t.id, { showFrom: 20 }, true);
   }
   if (!n) return;
   upgrading = true;

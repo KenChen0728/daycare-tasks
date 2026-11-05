@@ -155,9 +155,13 @@ export function monthOccs(t, y, m, get) {
   return out;
 }
 
+/* 集中在月底或月中後才做的事項，這天以前不出現在「今天」頁和 LINE。showLast：最後幾天；showFrom：幾號起。 */
+export const showDate = (t, due) => t.showLast ? addDays(due, 1 - t.showLast) : t.showFrom ? due.slice(0, 8) + pad(t.showFrom) : '';
+
 export function bucket(t, o, today) {
   const d = diff(o.due, today);
   if (d < 0) return 'over';
+  if (today < showDate(t, o.due) && d > 0) return 'later';
   if (t.freq === 'daily' || d === 0) return 'today';
   if (t.freq === 'weekly') return 'week';
   // 一律到期前一個月開始提醒。自辦研習照計畫算出的日子出現（核備課程前兩週、成果報告課程結束後）。

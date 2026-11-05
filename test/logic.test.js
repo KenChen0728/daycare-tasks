@@ -1,5 +1,5 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays, monthOccs, addMonth, followUpTasks, followUpIds, planTasks, keyEnd, termKey, termOf, shiftTerm, pendingLabel, stageOf, needsPick, pickDays, pickDeadline, titleOf, weekDue } from '../logic.js';
+import { showDate, nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays, monthOccs, addMonth, followUpTasks, followUpIds, planTasks, keyEnd, termKey, termOf, shiftTerm, pendingLabel, stageOf, needsPick, pickDays, pickDeadline, titleOf, weekDue } from '../logic.js';
 const none = () => undefined;
 const M = { id:'m', who:'admin', freq:'monthly', months:[1,2,3,4,5,6,7,8,9,10,11,12], day:31, lead:7, from:'2026-11-01', title:'月', gov:false };
 const S = { ...M, id:'s', needSend:true, gov:true };
@@ -142,4 +142,16 @@ test('登革熱巡檢：週二、四，遇假日改到同週其他天', () => {
   assert.equal(weekDue(Th,'2031-12-22'),'2031-12-26');   // 12/25 週四放假，改週五
   assert.equal(weekDue({...Tu,shift:undefined},'2029-12-24'),'2029-12-25');
   assert.deepEqual(monthOccs(Th,2031,12,none).map(o=>o.due),['2031-12-04','2031-12-11','2031-12-18','2031-12-26']);
+});
+
+test('歸檔最後 7 天、身高體重 20 號起才提醒', () => {
+  const F={...M,showLast:7}, H={...M,showFrom:20};
+  assert.equal(showDate(F,'2026-11-30'),'2026-11-24'); assert.equal(showDate(F,'2027-02-28'),'2027-02-22'); assert.equal(showDate(H,'2026-11-30'),'2026-11-20'); assert.equal(showDate(M,'2026-11-30'),'');
+  const at=(t,d)=>bucket(t,nextOcc(t,d,none),d);
+  assert.equal(at(F,'2026-11-05'),'later'); assert.equal(at(F,'2026-11-23'),'later'); assert.equal(at(F,'2026-11-24'),'soon'); assert.equal(at(F,'2026-11-30'),'today');
+  assert.equal(at(H,'2026-11-19'),'later'); assert.equal(at(H,'2026-11-20'),'soon'); assert.equal(at(M,'2026-11-05'),'soon');
+  assert.equal(at(F,'2026-12-05'),'over');   // 上個月沒做仍算逾期
+  assert.equal(buildReminder([F,H],'2026-11-19',none).lists.admin.soon.length,0);
+  const r=buildReminder([F,H],'2026-11-24',none); assert.equal(r.lists.admin.soon.length,2); assert.equal(shouldSend(r,[]),true);
+  assert.equal(monthOccs(F,2026,11,none)[0].due,'2026-11-30');   // 日曆照舊
 });
