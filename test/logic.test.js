@@ -176,3 +176,12 @@ test('放假前最後上班日：週末到期週五要提醒', () => {
   assert.equal(lastChance('2027-02-01', '2027-01-29'), false);
   assert.equal(lastChance('2027-01-30', '2027-01-28'), false);
 });
+
+test('薪資、排班：前一個月 15 號起提醒，最後 7 天快到期', () => {
+  const P={...M,day:1,rollBack:true,monthTitle:true,showPrev:15,from:'2026-11-02'};
+  const at=d=>bucket(P,nextOcc(P,d,none),d);
+  assert.equal(nextOcc(P,'2026-11-05',none).due,'2026-12-01');
+  assert.equal(at('2026-11-05'),'later'); assert.equal(at('2026-11-14'),'later'); assert.equal(at('2026-11-15'),'month'); assert.equal(at('2026-11-23'),'month'); assert.equal(at('2026-11-24'),'soon'); assert.equal(at('2026-12-01'),'today');
+  assert.equal(showDate(P,'2027-01-01','2027-01'),'2026-12-15');
+  assert.equal(buildReminder([P],'2026-11-05',none).lists.admin.soon.length,0); assert.equal(buildReminder([P],'2026-11-24',none).lists.admin.soon.length,1);
+});
