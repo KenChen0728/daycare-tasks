@@ -185,3 +185,22 @@ test('薪資、排班：前一個月 15 號起提醒，最後 7 天快到期', (
   assert.equal(showDate(P,'2027-01-01','2027-01'),'2026-12-15');
   assert.equal(buildReminder([P],'2026-11-05',none).lists.admin.soon.length,0); assert.equal(buildReminder([P],'2026-11-24',none).lists.admin.soon.length,1);
 });
+
+test('排班表：前一個月 20 號前做好並發出，15 號起快到期', () => {
+  const S={...M,day:1,rollBack:true,monthTitle:true,showPrev:15,dueBefore:20,needSend:true,sendLabel:'已發出',from:'2026-11-02',title:'排班表'};
+  const o=nextOcc(S,'2026-11-09',none); assert.equal(o.key,'2026-12'); assert.equal(o.due,'2026-11-20'); assert.equal(titleOf(S,o.key),'12月排班表');
+  const at=(d,g=none)=>bucket(S,nextOcc(S,d,g),d);
+  assert.equal(at('2026-11-09'),'later'); assert.equal(at('2026-11-14'),'later'); assert.equal(at('2026-11-15'),'soon'); assert.equal(at('2026-11-20'),'today'); assert.equal(at('2026-11-23'),'over');
+  // 行政完成、還沒發出：仍在，寫待發出；過 20 號算逾期
+  const d=(i,k)=>k==='2026-12'?{doneAt:1}:undefined;
+  assert.equal(nextOcc(S,'2026-11-18',d).stage,'send'); assert.equal(pendingLabel(S,'send'),'待發出'); assert.equal(at('2026-11-23',d),'over');
+  assert.match(formatReminder(buildReminder([S],'2026-11-18',d),'u','2026-11-18'),/12月排班表[\s\S]*已完成，待發出/);
+  // 已發出就換下一期：1月排班表 12/18（12/20 週日提前到週五）
+  const s=(i,k)=>k==='2026-12'?{doneAt:1,sentAt:1}:undefined, n=nextOcc(S,'2026-11-20',s);
+  assert.equal(titleOf(S,n.key),'1月排班表'); assert.equal(n.due,'2026-12-18');
+  assert.equal(at('2026-12-15',s),'soon');
+  // 日曆：11 月標 11/20 的 12月排班表，12 月標 12/18 的 1月排班表
+  assert.deepEqual(monthOccs(S,2026,11,none).map(x=>[x.key,x.due]),[['2026-12','2026-11-20']]);
+  assert.deepEqual(monthOccs(S,2026,12,none).map(x=>[x.key,x.due]),[['2027-01','2026-12-18']]);
+  assert.equal(buildReminder([S],'2026-11-14',none).lists.admin.soon.length,0); assert.equal(buildReminder([S],'2026-11-16',none).lists.admin.soon.length,1);
+});

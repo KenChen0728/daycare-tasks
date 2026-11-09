@@ -31,6 +31,8 @@ export const needsPick = (t, key) => !!t.pick && !(t.picks || {})[key];
 export const pickDeadline = d => prevWork(addDays(d, -1));
 // 期限的最後調整：核銷日前一天；提前的事項遇假日移到上一個工作天。
 const finalDue = (t, key, due) => t.pick ? ((t.picks || {})[key] ? pickDeadline(t.picks[key]) : due) : t.rollBack ? prevWork(due) : due;
+// 每月的到期日。dueBefore：前一個月的幾號，例如 12月排班表 11/20 前做好。
+const rawDue = (t, key) => t.dueBefore ? prevMonth(key) + '-' + pad(t.dueBefore) : key + '-' + pad(Math.min(t.day || 31, lastDay(+key.slice(0, 4), +key.slice(5, 7))));
 // 每月先做好下個月的事項，名稱寫明是哪個月的，例如「12月薪資製作」。
 export const titleOf = (t, key) => t.monthTitle && /^\d{4}-\d{2}$/.test(key || '') ? `${+key.slice(5)}月${t.title}` : t.title;
 export const pickDays = key => Array.from({ length: lastDay(+key.slice(0, 4), +key.slice(5, 7)) }, (_, i) => key + '-' + pad(i + 1));
@@ -121,7 +123,7 @@ export function nextOcc(t, today, get) {
   let y = +start.slice(0, 4), m = +start.slice(5, 7);
   for (let i = 0; i < 40; i++) {
     if ((t.months || []).includes(m)) {
-      const raw = y + '-' + pad(m) + '-' + pad(Math.min(t.day || 31, lastDay(y, m))), key = y + '-' + pad(m);
+      const key = y + '-' + pad(m), raw = rawDue(t, key);
       const due = t.rollover ? rollDue(raw) : raw;
       if (due >= start) { const o = openOcc(t, key, finalDue(t, key, due), get); if (o) return o; }
     }
@@ -149,7 +151,7 @@ export function monthOccs(t, y, m, get) {
     // 下個月那一期的期限可能提前到這個月。
     for (const [yy, mm] of [m === 1 ? [y - 1, 12] : [y, m - 1], [y, m], ...(t.pick || t.rollBack ? [m === 12 ? [y + 1, 1] : [y, m + 1]] : [])]) {
       if (!(t.months || []).includes(mm) || needsPick(t, yy + '-' + pad(mm))) continue;
-      const raw = yy + '-' + pad(mm) + '-' + pad(Math.min(t.day || 31, lastDay(yy, mm)));
+      const raw = rawDue(t, yy + '-' + pad(mm));
       const due = t.rollover ? rollDue(raw) : raw;
       if (!t.from || due >= t.from) push(yy + '-' + pad(mm), finalDue(t, yy + '-' + pad(mm), due));
     }

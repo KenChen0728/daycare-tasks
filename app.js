@@ -13,7 +13,7 @@ const short = s => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
 const today = () => taipeiToday();
 function ruleText(t) {
   if (t.pick) return '每月兩次，選核銷日期，前一個工作天截止';
-  if (t.monthTitle) return '每月 1 號前做好當月的，遇假日提前' + (t.showPrev ? `，前一個月 ${t.showPrev} 號起提醒` : '');
+  if (t.monthTitle) return (t.dueBefore ? `前一個月 ${t.dueBefore} 號前做好下個月的` : '每月 1 號前做好當月的') + '，遇假日提前' + (t.showPrev ? `，前一個月 ${t.showPrev} 號起提醒` : '');
   if (t.shift) return '每週' + WZ[t.weekday || 5] + '，遇假日改到同週其他天';
   if (t.freq === 'daily') return '每個上班日';
   if (t.freq === 'weekly') return '每週' + WZ[t.weekday || 5] + '前';
@@ -35,10 +35,10 @@ let myName = '';
 let db, auth, user, tasks = [], recs = new Map(), meta = null, ready = { tasks: false, records: false, quick: false };
 const VIEWS = ['today', 'all', 'cal', 'kpi', 'log', 'set', 'help'];
 const PAGES = { today: '今天', all: '全部事項', cal: '日曆', kpi: 'KPI', log: '完成紀錄', set: '設定', help: '說明' };
-const MARKS = ['vouchers', 'rules1105', 'rules1105b', 'rules1105c', 'rules1105d'];   // 事項上的資料調整標記
+const MARKS = ['vouchers', 'rules1105', 'rules1105b', 'rules1105c', 'rules1105d', 'rules1109'];   // 事項上的資料調整標記
 const MORE_VIEWS = ['log', 'set', 'help'];   // 手機收在「更多」裡的頁面
 const CAL_SIDE = matchMedia('(min-width:1200px)');   // 這麼寬時，當天清單在日曆右邊，和 style.css 同步
-const VERSION = '2026.11.05.3';   // 改版時一起改，設定頁看得到
+const VERSION = '2026.11.09.1';   // 改版時一起改，設定頁看得到
 const CAL_BARS = 3;   // 日曆每格最多顯示幾件，其餘寫「還有 N 件」
 let helpTopic = '', helpStep = 0, calMonth = '', calSel = '', kpiTerm = '', shownDay = '';
 let view = 'today', who = 'all', editing = null, delArmed = false, unsub = [], importData = null;
@@ -295,7 +295,7 @@ async function act(a, id, key) {
 function syncForm() {
   const f = $('fFreq').value;
   $('wDate').hidden = f !== 'once'; $('wMonths').hidden = f !== 'months'; $('wWeek').hidden = f !== 'weekly';
-  $('wDay').hidden = $('wRoll').hidden = !(f === 'months' || f === 'monthly'); $('fDate').required = f === 'once';
+  $('wDay').hidden = $('wRoll').hidden = !(f === 'months' || f === 'monthly') || !!(editing && editing.dueBefore); $('fDate').required = f === 'once';
   $('wSend').hidden = f === 'daily' || f === 'adhoc';
 }
 function openForm(t) {
@@ -316,7 +316,7 @@ async function save() {
   if (freq === 'months' && !months.length) return toast('請至少選一個月份。');
   const old = editing, title = $('fTitle').value.trim(); if (!title) return;
   const group = freq === 'months' ? (old && old.freq === 'months' ? old.group : (months.length === 1 ? '每年' : '每季')) : GMAP[freq];
-  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData', 'pick', 'picks', 'review', 'vouchers', 'monthTitle', 'rollBack', 'shift', 'showFrom', 'showLast', 'showPrev', 'rules1105d', 'rules1105', 'rules1105b', 'rules1105c'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
+  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData', 'pick', 'picks', 'review', 'vouchers', 'monthTitle', 'rollBack', 'shift', 'showFrom', 'showLast', 'showPrev', 'dueBefore', 'rules1105d', 'rules1109', 'rules1105', 'rules1105b', 'rules1105c'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
   const data = { ...keep, who: $('fWho').value, group, freq, title, months: freq === 'monthly' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : freq === 'months' ? months : [],
     day: +$('fDay').value || 31, lead: +$('fLead').value || 0, gov: $('fGov').checked, verify: $('fVerify').checked, note: $('fNote').value.trim(),
     needSend: freq !== 'daily' && freq !== 'adhoc' && $('fSend').checked, rollover: (freq === 'monthly' || freq === 'months') && $('fRoll').checked, from: old ? old.from : today(), order: old ? old.order : Date.now() };
@@ -473,6 +473,11 @@ async function upgradeData() {
   if (keepTask && !tasks.some(t => t.rules1105d)) {
     put(keepTask.id, { rules1105d: true }, true);
     for (const t of tasks) if (t.monthTitle) put(t.id, { showPrev: 15 }, true);
+  }
+  // 排班表：前一個月 20 號前由行政做好、主任發出，按「已發出」才結案；15 號起進快到期。
+  if (keepTask && !tasks.some(t => t.rules1109)) {
+    put(keepTask.id, { rules1109: true }, true);
+    for (const t of tasks) if (t.monthTitle && t.title === '排班表') put(t.id, { dueBefore: 20, who: 'admin', needSend: true, sendLabel: '已發出', ...(t.note ? {} : { note: '行政做好，主任發出' }) }, true);
   }
   if (!n) return;
   upgrading = true;
