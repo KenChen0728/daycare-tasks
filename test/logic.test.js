@@ -1,5 +1,5 @@
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { showDate, nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays, monthOccs, addMonth, followUpTasks, followUpIds, planTasks, keyEnd, termKey, termOf, shiftTerm, pendingLabel, stageOf, needsPick, pickDays, pickDeadline, titleOf, weekDue, lastChance } from '../logic.js';
+import { showDate, nextOcc, bucket, buildReminder, formatReminder, shouldSend, splitText, addDays, monthOccs, addMonth, followUpTasks, followUpIds, planTasks, keyEnd, termKey, termOf, shiftTerm, pendingLabel, stageOf, needsPick, pickDays, pickDeadline, titleOf, weekDue, lastChance, linkPicks } from '../logic.js';
 const none = () => undefined;
 const M = { id:'m', who:'admin', freq:'monthly', months:[1,2,3,4,5,6,7,8,9,10,11,12], day:31, lead:7, from:'2026-11-01', title:'月', gov:false };
 const S = { ...M, id:'s', needSend:true, gov:true };
@@ -120,6 +120,27 @@ test('憑證核銷：完成、主管覆核、已送件才結案', () => {
   assert.equal(nextOcc(V,'2026-11-05',(i,k)=>k==='2026-11'?{doneAt:1,reviewAt:1,sentAt:1}:undefined).key,'2026-12');
   const t=formatReminder(buildReminder([V],'2026-11-05',()=>({doneAt:1})),'u','2026-11-05'); assert.match(t,/待主管覆核/);
   const u=formatReminder(buildReminder([{...V,picks:{}}],'2026-11-05',none),'u','2026-11-05'); assert.match(u,/11 月還沒選日期/);
+});
+test('零用金代墊清單：日期跟著同一次憑證', () => {
+  const V={id:'voucher-1',who:'admin',either:true,freq:'monthly',months:[1,2,3,4,5,6,7,8,9,10,11,12],day:31,from:'2026-11-01',title:'憑證核銷製作（第 1 次）',needSend:true,sendLabel:'已送件',review:true,pick:true,picks:{'2026-11':'2026-11-16'}};
+  const C={...V,id:'pettycash-1',title:'零用金代墊清單（第 1 次）',pickOf:'voucher-1',picks:{}};
+  const [v,c]=linkPicks([V,C]);
+  assert.equal(nextOcc(c,'2026-11-11',none).due,'2026-11-13'); assert.equal(nextOcc(c,'2026-11-11',none).due,nextOcc(v,'2026-11-11',none).due);
+  assert.equal(monthOccs(c,2026,11,none)[0].due,'2026-11-13');
+  assert.equal(stageOf(c,{doneAt:1}),'review'); assert.equal(stageOf(c,{doneAt:1,reviewAt:1}),'send');
+  assert.equal(nextOcc(c,'2026-11-11',(i,k)=>i==='pettycash-1'&&k==='2026-11'?{doneAt:1,reviewAt:1,sentAt:1}:undefined).key,'2026-12');
+  // 憑證還沒選日期：代墊清單不進今天頁和 LINE，只有憑證提醒去選
+  const [v2,c2]=linkPicks([{...V,picks:{}},C]);
+  assert.equal(bucket(c2,nextOcc(c2,'2026-11-11',none),'2026-11-11'),'later');
+  const t=formatReminder(buildReminder([v2,c2],'2026-11-11',none),'u','2026-11-11');
+  assert.match(t,/憑證核銷製作/); assert.doesNotMatch(t,/零用金/);
+  // 選了日期：兩件一起出現在 LINE
+  const u=formatReminder(buildReminder([v,c],'2026-11-11',none),'u','2026-11-11');
+  assert.match(u,/零用金代墊清單（第 1 次）\n　11\/13（五） 剩 2 天/);
+  // 憑證被刪掉：改用自己的日期，不會卡住
+  const [c3]=linkPicks([C]); assert.equal(c3.pickOf,undefined); assert.equal(bucket(c3,nextOcc(c3,'2026-11-11',none),'2026-11-11'),'soon');
+  // 不改到原本的資料
+  assert.deepEqual(C.picks,{});
 });
 test('核銷截止日遇假日提前', () => {
   assert.equal(pickDeadline('2026-11-16'),'2026-11-13');   // 週一核銷，週五截止

@@ -1,6 +1,6 @@
 import { firebaseConfig, APP_URL } from './firebase-config.js';
 import * as fb from './vendor/firebase.js';
-import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf, monthOccs, sendLabel, pendingLabel, eitherLabel, followUpTasks, followUpIds, planTasks, needsPick, pickDays, pickDeadline, titleOf, termOf, termKey, shiftTerm, keyEnd } from './logic.js';
+import { WHO, nextOcc, bucket, dow, diff, addDays, taipeiToday, collectionFor, recordId, stageOf, monthOccs, sendLabel, pendingLabel, eitherLabel, followUpTasks, followUpIds, planTasks, needsPick, pickDays, pickDeadline, linkPicks, titleOf, termOf, termKey, shiftTerm, keyEnd } from './logic.js';
 import { renderHelp } from './help.js';
 
 const $ = id => document.getElementById(id);
@@ -12,6 +12,7 @@ const rocDate = s => { const [y, m, d] = s.split('-').map(Number); return `民�
 const short = s => `${+s.slice(5, 7)}/${+s.slice(8, 10)}`;
 const today = () => taipeiToday();
 function ruleText(t) {
+  if (t.pickOf && taskOf(t.pickOf)) return `跟${taskOf(t.pickOf).title}同一天截止，一起交`;
   if (t.pick) return '每月兩次，選核銷日期，前一個工作天截止';
   if (t.monthTitle) return (t.dueBefore ? `前一個月 ${t.dueBefore} 號前做好下個月的` : '每月 1 號前做好當月的') + '，遇假日提前' + (t.showPrev ? `，前一個月 ${t.showPrev} 號起提醒` : '');
   if (t.shift) return '每週' + WZ[t.weekday || 5] + '，遇假日改到同週其他天';
@@ -35,10 +36,10 @@ let myName = '';
 let db, auth, user, tasks = [], recs = new Map(), meta = null, ready = { tasks: false, records: false, quick: false };
 const VIEWS = ['today', 'all', 'cal', 'kpi', 'log', 'set', 'help'];
 const PAGES = { today: '今天', all: '全部事項', cal: '日曆', kpi: 'KPI', log: '完成紀錄', set: '設定', help: '說明' };
-const MARKS = ['vouchers', 'rules1105', 'rules1105b', 'rules1105c', 'rules1105d', 'rules1109'];   // 事項上的資料調整標記
+const MARKS = ['vouchers', 'rules1105', 'rules1105b', 'rules1105c', 'rules1105d', 'rules1109', 'rules1111'];   // 事項上的資料調整標記
 const MORE_VIEWS = ['log', 'set', 'help'];   // 手機收在「更多」裡的頁面
 const CAL_SIDE = matchMedia('(min-width:1200px)');   // 這麼寬時，當天清單在日曆右邊，和 style.css 同步
-const VERSION = '2026.11.09.1';   // 改版時一起改，設定頁看得到
+const VERSION = '2026.11.11.1';   // 改版時一起改，設定頁看得到
 const CAL_BARS = 3;   // 日曆每格最多顯示幾件，其餘寫「還有 N 件」
 let helpTopic = '', helpStep = 0, calMonth = '', calSel = '', kpiTerm = '', shownDay = '';
 let view = 'today', who = 'all', editing = null, delArmed = false, unsub = [], importData = null;
@@ -73,7 +74,7 @@ function whenText(t, o, b, now) {
   const d = diff(o.due, now);
   if (b === 'over') return `<span class="when-bad">已逾期 ${-d} 天（${short(o.due)}）</span>`;
   if (t.freq === 'daily') return '';
-  if (needsPick(t, o.key)) return '<span class="when-warn">還沒選日期</span>';
+  if (needsPick(t, o.key)) return `<span class="when-warn">${t.pickOf ? '憑證還沒選日期' : '還沒選日期'}</span>`;
   if (d === 0) return '<span class="when-bad">今天到期</span>';
   if (d <= 7) return `<span class="when-warn">剩 ${d} 天（${short(o.due)}）</span>`;
   return `<span>${short(o.due)} 到期，剩 ${d} 天</span>`;
@@ -90,6 +91,8 @@ function ticks(t, key) {
 // 核銷日期下拉選單：截止日自動算成前一天。送件後就不能改。
 function pickSelect(t, key) {
   if (!t.pick) return '';
+  const src = t.pickOf && taskOf(t.pickOf);
+  if (src) { const d = (t.picks || {})[key]; return `<div class="pick">${+key.slice(5)} 月核銷日期跟著${esc(titleOf(src, key))}：${d ? `${short(d)}（${WZ[dow(d)]}）` : '還沒選'}</div>`; }
   const cur = (t.picks || {})[key] || '', r = getRec(t.id, key);
   const opts = pickDays(key).map(d => `<option value="${d}"${d === cur ? ' selected' : ''}>${short(d)}（${WZ[dow(d)]}）</option>`).join('');
   return `<label class="pick">${+key.slice(5)} 月核銷日期<select data-pick data-id="${esc(t.id)}" data-key="${esc(key)}"${r && r.sentAt ? ' disabled' : ''}><option value="">請選擇</option>${opts}</select></label>`;
@@ -316,7 +319,7 @@ async function save() {
   if (freq === 'months' && !months.length) return toast('請至少選一個月份。');
   const old = editing, title = $('fTitle').value.trim(); if (!title) return;
   const group = freq === 'months' ? (old && old.freq === 'months' ? old.group : (months.length === 1 ? '每年' : '每季')) : GMAP[freq];
-  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData', 'pick', 'picks', 'review', 'vouchers', 'monthTitle', 'rollBack', 'shift', 'showFrom', 'showLast', 'showPrev', 'dueBefore', 'rules1105d', 'rules1109', 'rules1105', 'rules1105b', 'rules1105c'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
+  const keep = Object.fromEntries(['kpi', 'followUp', 'followUps', 'either', 'sendLabel', 'plan', 'planData', 'pick', 'picks', 'review', 'vouchers', 'monthTitle', 'rollBack', 'shift', 'showFrom', 'showLast', 'showPrev', 'dueBefore', 'pickOf', 'rules1105d', 'rules1109', 'rules1111', 'rules1105', 'rules1105b', 'rules1105c'].filter(k => old && old[k] !== undefined).map(k => [k, old[k]]));
   const data = { ...keep, who: $('fWho').value, group, freq, title, months: freq === 'monthly' ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] : freq === 'months' ? months : [],
     day: +$('fDay').value || 31, lead: +$('fLead').value || 0, gov: $('fGov').checked, verify: $('fVerify').checked, note: $('fNote').value.trim(),
     needSend: freq !== 'daily' && freq !== 'adhoc' && $('fSend').checked, rollover: (freq === 'monthly' || freq === 'months') && $('fRoll').checked, from: old ? old.from : today(), order: old ? old.order : Date.now() };
@@ -474,6 +477,16 @@ async function upgradeData() {
     put(keepTask.id, { rules1105d: true }, true);
     for (const t of tasks) if (t.monthTitle) put(t.id, { showPrev: 15 }, true);
   }
+  // 零用金代墊清單：每次憑證核銷各一件，日期跟著同一次的憑證，一樣要主管覆核、已送件。
+  // 本月那次憑證已送件的話，從下個月開始，不會跑出已經交過的那一期。
+  if (keepTask && !tasks.some(t => t.rules1111)) {
+    put(keepTask.id, { rules1111: true }, true);
+    const ym = today().slice(0, 7), nx = +ym.slice(5) === 12 ? (+ym.slice(0, 4) + 1) + '-01' : ym.slice(0, 5) + String(+ym.slice(5) + 1).padStart(2, '0');
+    for (const i of [1, 2]) {
+      const v = taskOf('voucher-' + i), id = 'pettycash-' + i, r = v && getRec(v.id, ym);
+      if (!taskOf(id)) put(id, { ...VOUCHER, id, title: `零用金代墊清單（第 ${i} 次）`, order: 900 + i + .5, pickOf: 'voucher-' + i, from: (r && r.sentAt ? nx : ym) + '-01', note: '跟憑證一起交' });
+    }
+  }
   // 排班表：前一個月 20 號前由行政做好、主任發出，按「已發出」才結案；15 號起進快到期。
   if (keepTask && !tasks.some(t => t.rules1109)) {
     put(keepTask.id, { rules1109: true }, true);
@@ -493,7 +506,7 @@ function subscribe() {
   const ok = k => { ready[k] = true; if (ready.tasks && ready.records && ready.quick) { clearTimeout(slow); setStatus(''); finishBoot('app'); upgradeData(); } render(); };
   const apply = (s, k) => { s.docChanges().forEach(c => c.type === 'removed' ? recs.delete(c.doc.id) : recs.set(c.doc.id, { ...c.doc.data(), id: c.doc.id })); ok(k); };
   unsub = [
-    fb.onSnapshot(fb.collection(db, 'tasks'), s => { if (!real(s)) return; tasks = s.docs.map(d => ({ ...d.data(), id: d.id })); ok('tasks'); }, fail),
+    fb.onSnapshot(fb.collection(db, 'tasks'), s => { if (!real(s)) return; tasks = linkPicks(s.docs.map(d => ({ ...d.data(), id: d.id }))); ok('tasks'); }, fail),
     // 只做一次的事項 key 是 once，字母排在數字後面，所以不管做完多久都讀得到，不會變回逾期。
     fb.onSnapshot(fb.query(fb.collection(db, 'records'), fb.where('key', '>=', addDays(today(), -420).slice(0, 7))), s => { if (real(s)) apply(s, 'records'); }, fail),
     fb.onSnapshot(fb.query(fb.collection(db, 'quick'), fb.where('doneDate', '>=', addDays(today(), -40))), s => { if (real(s)) apply(s, 'quick'); }, fail),

@@ -35,6 +35,12 @@ const finalDue = (t, key, due) => t.pick ? ((t.picks || {})[key] ? pickDeadline(
 const rawDue = (t, key) => t.dueBefore ? prevMonth(key) + '-' + pad(t.dueBefore) : key + '-' + pad(Math.min(t.day || 31, lastDay(+key.slice(0, 4), +key.slice(5, 7))));
 // 每月先做好下個月的事項，名稱寫明是哪個月的，例如「12月薪資製作」。
 export const titleOf = (t, key) => t.monthTitle && /^\d{4}-\d{2}$/.test(key || '') ? `${+key.slice(5)}月${t.title}` : t.title;
+/* 跟著另一件事項的核銷日期（pickOf），例如零用金代墊清單跟著同一次的憑證核銷。
+   只在讀進來時合併，不寫回資料庫；被跟的事項刪掉了，就改用自己的日期。 */
+export function linkPicks(tasks) {
+  const m = new Map(tasks.map(t => [t.id, t]));
+  return tasks.map(t => { if (!t.pickOf) return t; const s = m.get(t.pickOf); if (s && s.pick) return { ...t, picks: s.picks || {} }; const { pickOf, ...rest } = t; return rest; });
+}
 export const pickDays = key => Array.from({ length: lastDay(+key.slice(0, 4), +key.slice(5, 7)) }, (_, i) => key + '-' + pad(i + 1));
 
 /* 加一個月，遇到月份天數不同時取該月最後一天。 */
@@ -173,7 +179,8 @@ export function bucket(t, o, today) {
   // 到期前一個月起放「本月待辦事項」，最後 7 天放「快到期」。自辦研習照計畫算出的日子出現；核備縣府照舊，課程前兩週就算快到期。
   if (t.plan ? d > (t.lead || 0) : o.due > addMonth(today)) return 'later';
   // 核銷還沒選日期時不知道真正的截止日，放快到期，LINE 才會提醒去選。
-  if (needsPick(t, o.key)) return 'soon';
+  // 跟著憑證日期的事項，憑證還沒選日期時先不出現，只提醒憑證那一件去選。
+  if (needsPick(t, o.key)) return t.pickOf ? 'later' : 'soon';
   return d <= (t.plan && t.gov ? t.lead || 0 : 7) ? 'soon' : 'month';
 }
 

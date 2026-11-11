@@ -1,6 +1,6 @@
 // 每個上班日由 GitHub Actions 執行：讀取事項、算到期、發 LINE。
 import { firebaseConfig as cfg, APP_URL } from '../firebase-config.js';
-import { buildReminder, formatReminder, shouldSend, splitText, recordId, collectionFor, taipeiToday, addDays } from '../logic.js';
+import { linkPicks, buildReminder, formatReminder, shouldSend, splitText, recordId, collectionFor, taipeiToday, addDays } from '../logic.js';
 
 const { BOT_EMAIL, BOT_PASSWORD, LINE_TOKEN, MODE = 'daily', SLOT = 'late' } = process.env;
 if (!BOT_EMAIL && !BOT_PASSWORD && !LINE_TOKEN) { console.log('系統還沒完成設定，略過'); process.exit(0); }
@@ -79,7 +79,8 @@ const meta = await getMeta();
 const slotKey = today + '-' + SLOT;   // 08:00、10:00 各發一次，同一時段不重複
 if (MODE === 'daily' && meta.slotKey === slotKey) { console.log('這個時段已處理過，不重複發送'); process.exit(0); }
 
-const [tasks, records, quick] = await Promise.all([list('tasks'), list('records'), list('quick')]);
+const [rawTasks, records, quick] = await Promise.all([list('tasks'), list('records'), list('quick')]);
+const tasks = linkPicks(rawTasks);
 if (!tasks.length) throw new Error('讀不到任何事項，請檢查資料');
 const map = new Map([...records, ...quick].map(r => [r.id, r]));
 const get = (id, key) => map.get(recordId(id, key));
