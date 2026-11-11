@@ -478,13 +478,13 @@ async function upgradeData() {
     for (const t of tasks) if (t.monthTitle) put(t.id, { showPrev: 15 }, true);
   }
   // 零用金代墊清單：每次憑證核銷各一件，日期跟著同一次的憑證，一樣要主管覆核、已送件。
-  // 本月那次憑證已送件的話，從下個月開始，不會跑出已經交過的那一期。
+  // 本月那次憑證已送件的話，從下個月開始，不會跑出已經交過的那一期。11 月第 1 次不補（主任 11/11 決定），從 12 月開始。
   if (keepTask && !tasks.some(t => t.rules1111)) {
     put(keepTask.id, { rules1111: true }, true);
     const ym = today().slice(0, 7), nx = +ym.slice(5) === 12 ? (+ym.slice(0, 4) + 1) + '-01' : ym.slice(0, 5) + String(+ym.slice(5) + 1).padStart(2, '0');
     for (const i of [1, 2]) {
       const v = taskOf('voucher-' + i), id = 'pettycash-' + i, r = v && getRec(v.id, ym);
-      if (!taskOf(id)) put(id, { ...VOUCHER, id, title: `零用金代墊清單（第 ${i} 次）`, order: 900 + i + .5, pickOf: 'voucher-' + i, from: (r && r.sentAt ? nx : ym) + '-01', note: '跟憑證一起交' });
+      if (!taskOf(id)) put(id, { ...VOUCHER, id, title: `零用金代墊清單（第 ${i} 次）`, order: 900 + i + .5, pickOf: 'voucher-' + i, from: (i === 1 && ym < '2026-12' ? '2026-12' : r && r.sentAt ? nx : ym) + '-01', note: '跟憑證一起交' });
     }
   }
   // 排班表：前一個月 20 號前由行政做好、主任發出，按「已發出」才結案；15 號起進快到期。
