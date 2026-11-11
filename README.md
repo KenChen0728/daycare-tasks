@@ -14,13 +14,13 @@ npm test
 
 每次大改前都會先開備份分支，名稱是 `backup-before-…`。
 
-目前最新的備份是 `backup-before-shift-due20-20261109`，內容是排班表改成前一個月 20 號到期之前的版本；改成底部導覽列和左側選單之前的版本是 `backup-before-nav-20261105`。要退回時，在專案資料夾執行：
+目前最新的備份是 `backup-before-pettycash-20261111`，內容是加入零用金代墊清單之前的版本；排班表改成前一個月 20 號到期之前的是 `backup-before-shift-due20-20261109`；改成底部導覽列和左側選單之前的版本是 `backup-before-nav-20261105`。要退回時，在專案資料夾執行：
 
 ```
 git fetch origin
 git checkout main
 git pull
-git revert --no-edit origin/backup-before-shift-due20-20261109..main
+git revert --no-edit origin/backup-before-pettycash-20261111..main
 git push origin main
 ```
 
